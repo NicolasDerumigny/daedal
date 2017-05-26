@@ -11,6 +11,7 @@ GRAN_COUNT=2 4 8
 ORIGINAL_SUFFIX=original
 CAE_SUFFIX=cae
 DAE_TYPE=dae
+TM_SUFFIX=tm-dae
 
 # Targets
 ORIGINAL_TARGETS=$(BENCHMARK).$(ORIGINAL_SUFFIX)
@@ -21,14 +22,20 @@ DAE_TARGETS=$(foreach type, $(DAE_TYPE), \
 
 CAE_TARGETS=$(foreach indir, $(INDIR_COUNT), $(BENCHMARK).gran$(indir).$(CAE_SUFFIX))
 
+TM_TARGETS=$(foreach indir, $(INDIR_COUNT), \
+			$(foreach gran, $(GRAN_COUNT), \
+				$(BENCHMARK).tm-gran$(gran).tm-indir$(indir).$(TM_SUFFIX)))
+
+
 ALLTARGETS=$(DAE_TARGETS) $(CAE_TARGETS) $(ORIGINAL_TARGETS) 
+
+# ALLTARGETS=$(TM_TARGETS)
 
 # Output directory
 BINDIR=../bin
 
 # TARGETS
 TARGETS=$(addprefix $(BINDIR)/, $(ALLTARGETS))
-
 
 
 

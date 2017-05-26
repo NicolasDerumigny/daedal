@@ -1,5 +1,10 @@
 # DAEDAL
 
+This is the developpement version of DAEDAL's support for transactional memory. It includes also a modified version of STAMPS benchmark for RTM instructions.
+
+==================================
+
+
 DAEDAL provides LLVM tools for Decoupled Access Execute.
 It is currently being developed at Uppsala University.
 

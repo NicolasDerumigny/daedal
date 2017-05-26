@@ -14,7 +14,7 @@
 /// the LICENSE file for details.
 //
 // This file implements a pass identify every function with "_kernel_"
-// as part of the name. Every such clone will be clonedand a call to the
+// as part of the name. Every such clone will be cloned and a call to the
 // clone will be added after all calls to the original function. The original
 // (cloned) functions will then have every instruction removed except
 // those required to follow the control flow graph (CFG), and

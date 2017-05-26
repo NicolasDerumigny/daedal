@@ -22,3 +22,10 @@ build
 .DS_store
 # LLVM IR
 *.ll
+# Binaries
+*.original
+*.dae
+*.cae
+*.tm-dae
+*.o
+bin

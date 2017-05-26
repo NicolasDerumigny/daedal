@@ -25,16 +25,19 @@ DAE_MARKER='__kernel__'
 #
 
 # Retrieving information from target file name
-get_gran=$(shell echo $@ | sed -n 's/.*\.gran\([0-9]*\)\..*/\1/p')
-get_indir=$(shell echo $@ | sed -n 's/.*\.indir\([0-9]*\)\..*/\1/p')
+get_gran=$(shell echo $@ | sed -n 's/.*\gran\([0-9]*\)\..*/\1/p')
+get_indir=$(shell echo $@ | sed -n 's/.*\indir\([0-9]*\)\..*/\1/p')
 
 # Helper to generate prerequisites of rules
 get_dae_prerequisites=$$(shell echo $$@ | sed 's/indir.*/extract.ll/g')
+get_tm-dae_prerequisites=$$(shell echo $$@ | sed 's/tm-indir.*/tm-extract.ll/g')
 get_marked=$$(addprefix $(BINDIR)/, $$(addsuffix .marked.ll,$$(basename $$(SRCS))))
 get_objects=$$(addprefix $(BINDIR)/, $$(addsuffix .ll, $$(basename $$(SRCS))))
 get_gran_files=$$(shell grep -l "__kernel__" $(BINDIR)/*.marked.ll | sed 's/.marked.ll/.gran.ll/g')
+get_tm-gran_files=$$(shell grep -l "__kernel__" $(BINDIR)/*.marked.ll | sed 's/.marked.ll/.tm-gran.ll/g')
 get_kernel_marked_files=$$(shell grep -l "__kernel__\|main" $(BINDIR)/*.marked.ll | sed 's/.marked.ll/.$$*.O3.ll/g')
 get_unmodified_files=$$(shell grep -l -L '__kernel__\|main' $(BINDIR)/*.marked.ll | sed 's/.marked/.marked.O3/g')
+
 
 # Debugging purposes: keep all generated ll files
 .PRECIOUS: %.ll
@@ -45,17 +48,28 @@ get_unmodified_files=$$(shell grep -l -L '__kernel__\|main' $(BINDIR)/*.marked.l
 
 # Create marked files first (marked whether to decouple or not), then
 # evaluate how to build the targets
-all: $(get_marked)
-
+all: libs $(get_marked)
 	$(MAKE) $(TARGETS)
+
+
+
+libs: $(SRCS_LIBS)
+ifdef SRCS_LIBS
+	$(MAKE) -C $(LIB_DIR)
+endif
+
 
 # Main makefile rules
 #
 $(BINDIR)/%.$(ORIGINAL_SUFFIX): $(get_objects)
-	$(CLANGCPP) $(CXXFLAGS) $(CFLAGS) $^ $(LDFLAGS) -L $(COMPILER_LIB) -o $@
+	$(CLANGCPP) $(CXXFLAGS) $(CFLAGS) $^ $(LIB_OBJS) $(LDFLAGS) -L $(COMPILER_LIB) -o $@
 
 $(BINDIR)/$(BENCHMARK).%: $(get_unmodified_files) $(get_kernel_marked_files) $(BINDIR)/$(BENCHMARK).%.GV_DAE.ll
-	$(CLANGCPP) $(CXXFLAGS) $(CFLAGS) $^ $(LDFLAGS) $(DVFS_FLAGS) -o $@
+	$(CLANGCPP) $(CXXFLAGS) $(CFLAGS) $^ $(LIB_OBJS) $(LDFLAGS) $(DVFS_FLAGS) -o $@
+
+
+%.tm-dae.ll: $(get_tm-dae_prerequisites)
+	$(OPT) -S -load $(COMPILER_LIB)/libFTMKernelPrefetch.so -tm-f-kernel-prefetch -o $@ $<
 
 %.dae.ll: $(get_dae_prerequisites)
 	$(eval $@_INDIR:=$(get_indir))
@@ -65,7 +79,11 @@ $(BINDIR)/$(BENCHMARK).%: $(get_unmodified_files) $(get_kernel_marked_files) $(B
 	-always-inline -O3 -load $(COMPILER_LIB)/libRemoveRedundantPref.so -rrp -o $@ $^
 
 $(BINDIR)/DAE-header.ll: $(get_gran_files)
+ifdef <
 	head -n 3 $< | tail -n -2 > $@
+else
+	touch $@
+endif
 
 %.GV_DAE.ll: $(BINDIR)/DAE-header.ll $(BINDIR)/Globals.ll
 	$(eval $@_GRAN:=$(get_gran))
@@ -99,10 +117,18 @@ $(BINDIR)/%.ll: %.cc
 	-mark-loops -require-delinquent=false -bench-name $(BENCHMARK) \
 	-o $@ $<; \
 
+%.tm-gran.ll: %.marked.ll
+	-$(OPT) -S -loop-simplify -reg2mem -licm -load $(COMPILER_LIB)/libTMLoopChunk.so \
+	-tm-loop-chunk -bench-name $(BENCHMARK) -mem2reg -o $@ $<
+
 %.gran.ll: %.marked.ll
 	-$(OPT) -S -loop-simplify -reg2mem -licm -load $(COMPILER_LIB)/libLoopChunk.so \
 	-loop-chunk -bench-name $(BENCHMARK) -mem2reg -o $@ $<
 
+
+%.tm-extract.ll: $$(shell echo $$@ | sed 's/.tm-gran[0-9]\+.*/.tm-gran.ll/g')
+	$(OPT) -S -load $(COMPILER_LIB)/libLoopExtract.so \
+	-aggregate-extracted-args -second-loop-extract -is-dae -bench-name $(BENCHMARK) -o $@ $<; \
 
 %.extract.ll: $$(shell echo $$@ | sed 's/.gran[0-9]\+.*/.gran.ll/g')
 	$(OPT) -S -load $(COMPILER_LIB)/libLoopExtract.so \
@@ -120,4 +146,4 @@ $(BINDIR)/%.ll: %.cc
 	$(OPT) -S -load $(COMPILER_LIB)/libTimeOrig.so -papi-orig -always-inline -o $@ $<;
 
 clean:
-	rm -f $(BINDIR)/* 
+	rm -f $(BINDIR)/*
