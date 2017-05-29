@@ -120,6 +120,7 @@ $(BINDIR)/%.ll: %.cc
 %.tm-gran.ll: %.marked.ll
 	-$(OPT) -S -loop-simplify -reg2mem -licm -load $(COMPILER_LIB)/libTMLoopChunk.so \
 	-tm-loop-chunk -bench-name $(BENCHMARK) -mem2reg -o $@ $<
+	#This step is actually useless are loop chunking is disable
 
 %.gran.ll: %.marked.ll
 	-$(OPT) -S -loop-simplify -reg2mem -licm -load $(COMPILER_LIB)/libLoopChunk.so \
@@ -127,8 +128,8 @@ $(BINDIR)/%.ll: %.cc
 
 
 %.tm-extract.ll: $$(shell echo $$@ | sed 's/.tm-gran[0-9]\+.*/.tm-gran.ll/g')
-	$(OPT) -S -load $(COMPILER_LIB)/libLoopExtract.so \
-	-aggregate-extracted-args -second-loop-extract -is-dae -bench-name $(BENCHMARK) -o $@ $<; \
+	$(OPT) -S -load $(COMPILER_LIB)/libTMLoopExtract.so \
+	-aggregate-extracted-args -tm-loop-extract -is-dae -bench-name $(BENCHMARK) -o $@ $<; \
 
 %.extract.ll: $$(shell echo $$@ | sed 's/.gran[0-9]\+.*/.gran.ll/g')
 	$(OPT) -S -load $(COMPILER_LIB)/libLoopExtract.so \

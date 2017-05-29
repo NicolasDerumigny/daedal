@@ -8,7 +8,7 @@
 //===----------------------------------------------------------------------===//
 /// \file TMLoopChunk.cpp
 ///
-/// \brief Transforms a loop into a doubly nested loop (strip mining)
+/// \brief Only print the region of interest
 ///
 /// \copyright Eta Scale AB. Licensed under the Eta Scale Open Source License. See
 /// the LICENSE file for details.
@@ -70,4 +70,4 @@ struct TMLoopChunk : public LoopPass {
 
 char TMLoopChunk::ID = 1;
 static RegisterPass<TMLoopChunk> X("tm-loop-chunk", "Loop chunking Pass for Transactional Memory", true,
-                                 true);
+                                  true);

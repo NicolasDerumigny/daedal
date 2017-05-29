@@ -5,8 +5,8 @@
 # 
 
 # Targets to build
-INDIR_COUNT=1 2 4 8
-GRAN_COUNT=2 4 8
+INDIR_COUNT=1
+GRAN_COUNT=2
 
 ORIGINAL_SUFFIX=original
 CAE_SUFFIX=cae
@@ -23,13 +23,13 @@ DAE_TARGETS=$(foreach type, $(DAE_TYPE), \
 CAE_TARGETS=$(foreach indir, $(INDIR_COUNT), $(BENCHMARK).gran$(indir).$(CAE_SUFFIX))
 
 TM_TARGETS=$(foreach indir, $(INDIR_COUNT), \
-			$(foreach gran, $(GRAN_COUNT), \
+			$(foreach gran, $(GRAN_COUNT),   \
 				$(BENCHMARK).tm-gran$(gran).tm-indir$(indir).$(TM_SUFFIX)))
 
 
 ALLTARGETS=$(DAE_TARGETS) $(CAE_TARGETS) $(ORIGINAL_TARGETS) 
 
-# ALLTARGETS=$(TM_TARGETS)
+ALLTARGETS=$(TM_TARGETS) $(ORIGINAL_TARGETS)
 
 # Output directory
 BINDIR=../bin
