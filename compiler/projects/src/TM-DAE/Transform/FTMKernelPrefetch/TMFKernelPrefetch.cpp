@@ -25,6 +25,8 @@
 
 #include <llvm/Analysis/BasicAliasAnalysis.h>
 #include <llvm/IR/IntrinsicInst.h>
+#include <llvm/IR/Function.h>
+#include <llvm/IR/Value.h>
 #include <map>
 #include <queue>
 #include <set>
@@ -38,7 +40,7 @@
 
 #include "llvm/Analysis/CFG.h"
 
-//#include "../../Utils/SkelUtils/CallingDAE.cpp"
+#include "../../Utils/SkelUtils/CallingDAE.cpp"
 
 #define LIBRARYNAME "TMFKernelPrefetch"
 #define PRINTSTREAM errs() // raw_ostream
@@ -98,10 +100,50 @@ public:
     bool change = false;
     for (Module::iterator fI = M.begin(), fE = M.end(); fI != fE; ++fI) {
       if (isFKernel(*fI)) {
-        PRINTSTREAM << "kernel:\n";
-        printStart() << fI->getName() << "\n";
+        PRINTSTREAM << "\n";
+        printStart().write_escaped(fI->getName()) << ":\n";
+        printStart() << "Max indirs: " << IndirThresh << "\n";
+
+
+    	set<BasicBlock *> bTS;
+		getBeginTMSection(&(*fI), M, bTS);
+
+        LI = &getAnalysis<LoopInfoWrapperPass>(*fI).getLoopInfo();
+        BasicAAResult BAR(createLegacyPMBasicAAResult(*this, *fI));
+        AAResults AAR(createLegacyPMAAResults(*this, *fI, BAR));
+        AA = &AAR;
+
+        Function *access = &*fI; // the original
+        Function *execute = cloneFunction(access);
+        change = true; // as the function is cloned (and inserted)
+
+        list<LoadInst *> toPref;   // LoadInsts to prefetch
+        set<Instruction *> toKeep; // Instructions to keep
+        if (findAccessInsts(*access, toKeep, toPref)) {
+          // insert prefetches
+          int prefs = insertPrefetches(toPref, toKeep, true);
+          if (prefs > 0) {
+            // remove unwanted instructions
+            removeUnlisted(*access, toKeep);
+
+            // Always inline the access phase
+            access->removeFnAttr(Attribute::NoInline);
+            access->addFnAttr(Attribute::AlwaysInline);
+            // Following instructions asssumes that the first
+            // operand is the original and the second the clone.
+            insertCallToAccessFunctionSequential(access, execute);
+          } else {
+            printStart() << "Disqualified: no prefetches\n";
+          }
+        } else {
+          printStart() << "Disqualified: CFG error\n";
+        }
+      } else if (isMain(*fI)) {
+        insertCallInitPAPI(&*fI);
+        change = true;
       }
     }
+
     return change;
   }
 
@@ -640,6 +682,46 @@ protected:
       }
     }
     return count <= thresh;
+  }
+
+
+  // Find all TM_Begin that can precede initFun by a traversal
+  // of the CFG
+  void getBeginTMSection(Function * initFun, Module & M, set<BasicBlock *> & bTS) {
+    vector<Function *> vF;
+    map<Function *, bool> seen;
+    vF.push_back(initFun);
+    seen[initFun]=true;
+
+    while(bTS.size() == 0 && vF.size() != 0) {
+      set<Function *> nvF;
+      for(Function * F: vF) {
+        vector<Instruction*> vI;
+        getCallers(&M, F, vI);
+        if (vI.size() == 0){
+          printStart()<<"WARNING: " <<
+          "A marked loop might be executed outside a TM section\n";
+        }
+        vector<BasicBlock *> vBlockWithoutBTS;
+        for(Instruction* I : vI)
+          getBeginTransactionalSection(I-> getParent(), bTS, vBlockWithoutBTS);
+
+        for(BasicBlock * BB: vBlockWithoutBTS)
+          nvF.insert(BB->getParent());
+      }
+      vF.clear();
+      for(Function * F: nvF)
+      	if (seen.find(F)==seen.end()){
+        	vF.push_back(F);
+        	seen[F]=true;
+      	}
+    }
+
+    if (bTS.size() == 0) {
+      printStart() << "A marked loop is never executed in a TM section in this file: WIP\n";
+    } else {
+    	printStart() << bTS.size() << " Corresponding TM_BEGIN()\n";
+    }
   }
 
   raw_ostream &printStart() { return (PRINTSTREAM << LIBRARYNAME << ": "); }

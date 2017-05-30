@@ -87,9 +87,6 @@ bool TMLoopExtract::runOnLoop(Loop *L, LPPassManager &LPM) {
     }
   }
 
-  PRINTSTREAM << "\n";
-  printStart().write_escaped(L->getHeader()->getName()) << "\n";
-
   // If LoopSimplify form is not available, stay out of trouble.
   if (!L->isLoopSimplifyForm()) {
     return false;
@@ -131,11 +128,7 @@ bool TMLoopExtract::runOnLoop(Loop *L, LPPassManager &LPM) {
     // we shouldn't try to run any more loop passes on it.
     LI->markAsRemoved(L);
   }
-
-  printStart().write_escaped(L->getHeader()->getParent()->getName().str())<<"\n";
-
-  printStart() << "Extracted \n";
-
+  
   return Changed;
 }
 

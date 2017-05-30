@@ -55,8 +55,6 @@ struct TMLoopChunk : public LoopPass {
     Function *F = h->getParent();
     
     if (L->getHeader()->getName().str().find(F_KERNEL_SUBSTR) != string::npos) { 
-      PRINTSTREAM << "\n";
-      printStart().write_escaped(L->getHeader()->getName()) << "\n";
 
       //Do nothing here, as Loop Chunking is currently disabled for trasactionnal memory
 
