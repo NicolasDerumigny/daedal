@@ -227,7 +227,8 @@ manager_deleteCustomer (TM_ARGDECL  manager_t* managerPtr, long customerId);
  * =============================================================================
  */
 long
-manager_queryCar (TM_ARGDECL  manager_t* managerPtr, long carId);
+manager_queryCar (TM_ARGDECL  manager_t* managerPtr, long carId)
+__attribute__((pure));
 
 
 /* =============================================================================
@@ -247,7 +248,8 @@ manager_queryCarPrice (TM_ARGDECL  manager_t* managerPtr, long carId);
  * =============================================================================
  */
 long
-manager_queryRoom (TM_ARGDECL  manager_t* managerPtr, long roomId);
+manager_queryRoom (TM_ARGDECL  manager_t* managerPtr, long roomId)
+__attribute__((pure));
 
 
 /* =============================================================================
@@ -267,7 +269,8 @@ manager_queryRoomPrice (TM_ARGDECL  manager_t* managerPtr, long roomId);
  * =============================================================================
  */
 long
-manager_queryFlight (TM_ARGDECL  manager_t* managerPtr, long flightId);
+manager_queryFlight (TM_ARGDECL  manager_t* managerPtr, long flightId)
+__attribute__((pure));
 
 
 /* =============================================================================

@@ -119,7 +119,7 @@ TMlist_iter_reset (TM_ARGDECL  list_iter_t* itPtr, list_t* listPtr);
  * =============================================================================
  */
 bool_t
-list_iter_hasNext (list_iter_t* itPtr, list_t* listPtr);
+list_iter_hasNext (list_iter_t* itPtr, list_t* listPtr) __attribute__((pure));
 
 
 /* =============================================================================
@@ -128,7 +128,7 @@ list_iter_hasNext (list_iter_t* itPtr, list_t* listPtr);
  */
 TM_CALLABLE
 bool_t
-TMlist_iter_hasNext (TM_ARGDECL  list_iter_t* itPtr, list_t* listPtr);
+TMlist_iter_hasNext (TM_ARGDECL  list_iter_t* itPtr, list_t* listPtr) __attribute__((pure));
 
 
 /* =============================================================================
@@ -251,7 +251,7 @@ TMlist_getSize (TM_ARGDECL  list_t* listPtr);
  * =============================================================================
  */
 void*
-list_find (list_t* listPtr, void* dataPtr);
+list_find (list_t* listPtr, void* dataPtr) __attribute__((pure));
 
 
 /* =============================================================================

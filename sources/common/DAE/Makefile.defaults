@@ -75,8 +75,8 @@ $(BINDIR)/$(BENCHMARK).%: $(get_unmodified_files) $(get_kernel_marked_files) $(B
 
 $(BINDIR)/$(BENCHMARK).%.$(TM_SUFFIX).O3.ll: $(BINDIR)/$(BENCHMARK).tm-gran$(get_gran_rule).$(TM_SUFFIX).ll
 	$(eval $@_INDIR:=$(get_indir))
-	$(OPT) -S -load $(COMPILER_LIB)/libFKernelPrefetch.so \
-	-tbaa -basicaa -f-kernel-prefetch \
+	$(OPT) -S -load $(COMPILER_LIB)/libTMFKernelPrefetch.so \
+	-tbaa -basicaa -tm-f-kernel-prefetch \
         -indir-thresh $($@_INDIR) -follow-partial \
 	-always-inline -O3 -load $(COMPILER_LIB)/libRemoveRedundantPref.so -rrp -o $@ $^
 

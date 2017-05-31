@@ -219,7 +219,7 @@ element_heapCompare (const void* aPtr, const void* bPtr);
  * =============================================================================
  */
 bool_t
-element_isInCircumCircle (element_t* elementPtr, coordinate_t* coordinatePtr);
+element_isInCircumCircle (element_t* elementPtr, coordinate_t* coordinatePtr) __attribute__((pure));
 
 
 /* =============================================================================
@@ -355,7 +355,7 @@ element_getNeighborListPtr (element_t* elementPtr);
  * =============================================================================
  */
 edge_t*
-element_getCommonEdge (element_t* aElementPtr, element_t* bElementPtr);
+element_getCommonEdge (element_t* aElementPtr, element_t* bElementPtr) __attribute__((pure));
 
 
 /* =============================================================================
