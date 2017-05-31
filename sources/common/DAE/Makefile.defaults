@@ -11,6 +11,7 @@ include $(LEVEL)/common/Makefile.environment
 #
 
 # LLVM tools
+LINK=$(LLVM_BIN)/llvm-link
 OPT=$(LLVM_BIN)/opt
 CLANG=$(LLVM_BIN)/clang 
 CLANGCPP=$(LLVM_BIN)/clang++
@@ -26,16 +27,18 @@ DAE_MARKER='__kernel__'
 
 # Retrieving information from target file name
 get_gran=$(shell echo $@ | sed -n 's/.*\gran\([0-9]*\)\..*/\1/p')
+get_gran_rule=$$(shell echo $$@ | sed -n 's/.*\gran\([0-9]*\)\..*/\1/p')
 get_indir=$(shell echo $@ | sed -n 's/.*\indir\([0-9]*\)\..*/\1/p')
 
 # Helper to generate prerequisites of rules
 get_dae_prerequisites=$$(shell echo $$@ | sed 's/indir.*/extract.ll/g')
-get_tm-dae_prerequisites=$$(shell echo $$@ | sed 's/tm-indir.*/tm-extract.ll/g')
+get_tm-dae_prerequisites=$$(shell echo `grep -l "__kernel__\|main" $(BINDIR)/*.marked.ll | sed 's=.marked.ll=.tm-gran.ll=g'` | sed "s=.tm-gran.ll=.$$*.tm-extract.ll=g")
 get_marked=$$(addprefix $(BINDIR)/, $$(addsuffix .marked.ll,$$(basename $$(SRCS))))
 get_objects=$$(addprefix $(BINDIR)/, $$(addsuffix .ll, $$(basename $$(SRCS))))
 get_gran_files=$$(shell grep -l "__kernel__" $(BINDIR)/*.marked.ll | sed 's/.marked.ll/.gran.ll/g')
 get_tm-gran_files=$$(shell grep -l "__kernel__" $(BINDIR)/*.marked.ll | sed 's/.marked.ll/.tm-gran.ll/g')
 get_kernel_marked_files=$$(shell grep -l "__kernel__\|main" $(BINDIR)/*.marked.ll | sed 's/.marked.ll/.$$*.O3.ll/g')
+get_tm-kernel_marked_files=$$(shell grep -l "__kernel__\|main" $(BINDIR)/*.marked.ll | sed 's/.marked.ll/.$$*.$(TM_SUFFIX).O3.ll/g')
 get_unmodified_files=$$(shell grep -l -L '__kernel__\|main' $(BINDIR)/*.marked.ll | sed 's/.marked/.marked.O3/g')
 
 
@@ -59,17 +62,27 @@ ifdef SRCS_LIBS
 endif
 
 
-# Main makefile rules
-#
+
 $(BINDIR)/%.$(ORIGINAL_SUFFIX): $(get_objects)
 	$(CLANGCPP) $(CXXFLAGS) $(CFLAGS) $^ $(LIB_OBJS) $(LDFLAGS) -L $(COMPILER_LIB) -o $@
+
+$(BINDIR)/$(BENCHMARK).%.$(TM_SUFFIX): $(BINDIR)/$(BENCHMARK).%.$(TM_SUFFIX).O3.ll $(BINDIR)/$(BENCHMARK).%.$(TM_SUFFIX).GV_DAE.ll
+	$(CLANGCPP) $(CXXFLAGS) $(CFLAGS) $^ $(LIB_OBJS) $(LDFLAGS) $(DVFS_FLAGS) -o $@
 
 $(BINDIR)/$(BENCHMARK).%: $(get_unmodified_files) $(get_kernel_marked_files) $(BINDIR)/$(BENCHMARK).%.GV_DAE.ll
 	$(CLANGCPP) $(CXXFLAGS) $(CFLAGS) $^ $(LIB_OBJS) $(LDFLAGS) $(DVFS_FLAGS) -o $@
 
 
-%.tm-dae.ll: $(get_tm-dae_prerequisites)
-	$(OPT) -S -load $(COMPILER_LIB)/libFTMKernelPrefetch.so -tm-f-kernel-prefetch -o $@ $<
+$(BINDIR)/$(BENCHMARK).%.$(TM_SUFFIX).O3.ll: $(BINDIR)/$(BENCHMARK).tm-gran$(get_gran_rule).$(TM_SUFFIX).ll
+	$(eval $@_INDIR:=$(get_indir))
+	$(OPT) -S -load $(COMPILER_LIB)/libFKernelPrefetch.so \
+	-tbaa -basicaa -f-kernel-prefetch \
+        -indir-thresh $($@_INDIR) -follow-partial \
+	-always-inline -O3 -load $(COMPILER_LIB)/libRemoveRedundantPref.so -rrp -o $@ $^
+
+
+$(BINDIR)/$(BENCHMARK).%.$(TM_SUFFIX).ll: $(get_tm-dae_prerequisites) $(get_unmodified_files)
+	$(LINK) -S -o $@ $^
 
 %.dae.ll: $(get_dae_prerequisites)
 	$(eval $@_INDIR:=$(get_indir))
