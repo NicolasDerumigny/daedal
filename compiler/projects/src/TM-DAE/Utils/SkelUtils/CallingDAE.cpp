@@ -426,10 +426,11 @@ bool isEndTMOrLock(BasicBlock* BB) {
       if(isa<InlineAsm> (cast<CallInst>(I)->getCalledValue()) &&
         cast<InlineAsm>(cast<CallInst>(I)->getCalledValue())->getAsmString() == TM_END_ASM)
          return true;
-    } else if(isa<CallInst>(I) && cast<CallInst> (I) -> getCalledFunction() -> getName() == "pthread_mutex_lock") {
-      return true;
+    } else {
+      if(isa<CallInst>(I) && cast<CallInst> (I) -> getCalledFunction() -> hasName() && cast<CallInst> (I) -> getCalledFunction() -> getName() == "pthread_mutex_lock") {
+        return true;
+      }
     }
-      
     
 
   return false;

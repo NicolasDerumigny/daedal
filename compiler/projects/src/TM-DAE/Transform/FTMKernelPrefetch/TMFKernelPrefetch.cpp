@@ -34,11 +34,12 @@
 #include <string>
 
 #include "llvm/Transforms/Utils/Cloning.h"
-
-#include "Util/Annotation/MetadataInfo.h"
-#include "llvm/IR/IRBuilder.h"
-
+#include "llvm/Analysis/TargetTransformInfo.h"
 #include "llvm/Analysis/CFG.h"
+#include "llvm/IR/IRBuilder.h"
+#include "Util/Annotation/MetadataInfo.h"
+
+
 
 #include "../../Utils/SkelUtils/CallingDAE.cpp"
 
@@ -73,6 +74,9 @@ static cl::opt<bool>
 static cl::opt<bool>
     FollowMust("follow-must", cl::desc("Require at MustAlias to follow store"));
 
+static cl::opt<bool>
+    DontUseTM("dont-use-tm", cl::desc("Do no detect TM_BEGIN and put access phasis "));
+
 // If present redundant prefetches are kept.
 static cl::opt<bool> KeepRedPrefs(
     "keep-red-prefs",
@@ -91,6 +95,7 @@ public:
   virtual void getAnalysisUsage(AnalysisUsage &AU) const {
     AU.addRequired<AAResultsWrapperPass>();
     AU.addRequired<LoopInfoWrapperPass>();
+    AU.addRequired<TargetTransformInfoWrapperPass>();
     AU.addRequired<AssumptionCacheTracker>();
     AU.addRequired<TargetLibraryInfoWrapperPass>();
   }
@@ -102,42 +107,13 @@ public:
       if (isFKernel(*fI)) {
         PRINTSTREAM << "\n";
         printStart().write_escaped(fI->getName()) << ":\n";
-        printStart() << "Max indirs: " << IndirThresh << "\n";
 
-
-    	set<BasicBlock *> bTS;
-		getBeginTMSection(&(*fI), M, bTS);
-
-        LI = &getAnalysis<LoopInfoWrapperPass>(*fI).getLoopInfo();
-        BasicAAResult BAR(createLegacyPMBasicAAResult(*this, *fI));
-        AAResults AAR(createLegacyPMAAResults(*this, *fI, BAR));
-        AA = &AAR;
-
-        Function *access = &*fI; // the original
-        Function *execute = cloneFunction(access);
-        change = true; // as the function is cloned (and inserted)
-
-        list<LoadInst *> toPref;   // LoadInsts to prefetch
-        set<Instruction *> toKeep; // Instructions to keep
-        if (findAccessInsts(*access, toKeep, toPref)) {
-          // insert prefetches
-          int prefs = insertPrefetches(toPref, toKeep, true);
-          if (prefs > 0) {
-            // remove unwanted instructions
-            removeUnlisted(*access, toKeep);
-
-            // Always inline the access phase
-            access->removeFnAttr(Attribute::NoInline);
-            access->addFnAttr(Attribute::AlwaysInline);
-            // Following instructions asssumes that the first
-            // operand is the original and the second the clone.
-            insertCallToAccessFunctionSequential(access, execute);
-          } else {
-            printStart() << "Disqualified: no prefetches\n";
-          }
-        } else {
-          printStart() << "Disqualified: CFG error\n";
+        if (!DontUseTM){
+          set<BasicBlock *> bTS;
+          getBeginTMSection(&(*fI), M, bTS);
         }
+
+        change |= swoopify(*fI);
       } else if (isMain(*fI)) {
         insertCallInitPAPI(&*fI);
         change = true;
@@ -219,6 +195,76 @@ protected:
     return closest;
   }
 
+  void filterLoadsOnIndir(LoopInfo *LI, list<LoadInst *> &LoadList, list<LoadInst *> &IndirList,
+                        unsigned int IndirThresh) {
+    for (list<LoadInst *>::iterator I = LoadList.begin(), E = LoadList.end(); I != E; ++I) {
+      set<Instruction *> Deps;
+      getDeps(LI, *I, Deps);
+      int DataIndirCount = count_if(Deps.begin(), Deps.end(),
+                                    [&](Instruction *DepI){return isa<LoadInst>(DepI) && LI->getLoopFor(DepI->getParent());});
+      bool UnderDataThreshold = DataIndirCount <= IndirThresh;
+      bool UnderCFGThreshold = !InstrhasMetadataKind(*I, "CFGIndir") ||
+          stoi(getInstructionMD(*I, "CFGIndir")) <= IndirThresh;
+
+      if (UnderDataThreshold && UnderCFGThreshold) {
+        IndirList.push_back(*I);
+      }
+      // else: hits indir threshold
+    }
+  }
+
+  void getRequirementsInIteration(LoopInfo *LI, Instruction *I, set<Instruction *> &DepSet, bool followStores = true) {
+    set<Instruction*> DataDeps;
+    getDeps(LI, I, DataDeps, followStores);
+    for (Instruction *DataDep : DataDeps) {
+      getControlDeps(LI, DataDep, DepSet);
+    }
+    DepSet.insert(DataDeps.begin(), DataDeps.end());
+  }
+
+  void filterLoadsOnInterferingDeps(LoopInfo *LI, list<LoadInst *> &Loads,
+                                            list<LoadInst *> &Hoistable, Function &F) {
+      // Hoistable, if CFG to this block doesn't require global stores / calls
+      for (auto L = Loads.begin(), LE = Loads.end(); L != LE; ++L) {
+        // this loads immediate deps
+        set<Instruction *> Deps;
+
+        // this laads populated deps in followDeps
+        set<Instruction *> DepSet;
+        getRequirementsInIteration(LI, *L, Deps);
+        if (followDeps(Deps, DepSet)) {
+          Hoistable.push_back(*L);
+        }
+    }
+  }
+
+
+  void findAccessInsts(LoopInfo *LI, Function &fun, list<LoadInst *> &toHoist, unsigned int IndirThresh) {
+    list<LoadInst *> LoadList, VisibleList, IndirLoads;
+
+    unsigned int BadDeps, Indir;
+
+    // Find all existing load instructions
+    findLoads(fun, LoadList);
+
+    findVisibleLoads(LoadList, VisibleList);
+
+    // Filter on the number of allowed indirections to hoist
+    filterLoadsOnIndir(LI, VisibleList, IndirLoads, IndirThresh);
+    Indir = VisibleList.size() - IndirLoads.size();
+
+    anotateStores(fun, IndirLoads);
+
+    // Hoistable depending on terminator instructions
+    filterLoadsOnInterferingDeps(LI, IndirLoads, toHoist, fun);
+
+    BadDeps = IndirLoads.size() - toHoist.size();
+
+    printStart() << "(BadDeps: " << BadDeps << ", Indir: " << Indir << ")\n";
+  }
+
+
+/* OLD
   bool virtual findAccessInsts(Function &fun, set<Instruction *> &toKeep,
                                list<LoadInst *> &toPref) {
     // Find instructions to keep
@@ -236,7 +282,7 @@ protected:
     toKeep.insert(Deps.begin(), Deps.end());
 
     return res;
-  }
+  }*/
 
 
   // Returns true iff F is an F_kernel function.
@@ -297,6 +343,93 @@ protected:
     }
   }
 
+
+  void getDeps(LoopInfo *LI, Instruction *I, set<Instruction *> &DepSet, bool followStores = true) {
+    queue<Instruction *> Q;
+    Q.push(I);
+
+    // get enclosing loop
+    const Loop *L = LI->getLoopFor(I->getParent());
+    BasicBlock *H;
+    
+    if (L) {
+      H = L->getHeader();
+    }
+    
+    while (!Q.empty()) {
+      Instruction *Inst = Q.front();
+      Q.pop();
+
+      // TODO: consider: do we want to include deps that are
+      // in the entry block?
+      if (L && Inst->getParent() == H && isa<PHINode>(Inst)) {
+  // do not follow backedges to the head of the loop;
+  // here we only consider requirements within _one_
+  // iteration
+  continue;
+      }
+    
+      enqueueOperands(Inst, DepSet, Q);
+      if (followStores && LoadInst::classof(Inst)) {
+  enqueueStores((LoadInst *)Inst, DepSet, Q);
+      }
+    }
+  }
+
+  void getControlDeps(LoopInfo *LI, Instruction *I, set<Instruction *> &Deps) {
+    set<BasicBlock *> Starred;
+    BasicBlock *BB = I->getParent();
+    std::queue<BasicBlock *> Ancestors;
+
+    const Loop *L = LI->getLoopFor(BB);
+    if (!L || BB == L->getHeader()) {
+      return;
+    }
+
+    // 1. Find all ancestors of the parent block that are
+    // contained in the loop.
+    Starred.insert(BB);
+    Ancestors.push(BB);
+    while (!Ancestors.empty()) {
+      BasicBlock *B = Ancestors.front();
+      Ancestors.pop();
+
+      const Loop *L = LI->getLoopFor(B);
+      if (!L || B == L->getHeader()) {
+        continue;
+      }
+
+      for (auto P = pred_begin(B), PE = pred_end(B); P != PE; ++P) {
+        if (Starred.insert(*P).second) { // succeeded inserting it
+          Ancestors.push(*P);
+        }
+      }
+    }
+
+
+    // 2. Find all terminator instructions that are crucial to the
+    // execution of I
+    for (auto Ancestor : Starred) {
+    
+      bool isMandatory = false;
+      for (succ_iterator S = succ_begin(Ancestor), SE = succ_end(Ancestor); S != SE && !isMandatory; ++S) {
+        if (Ancestor == BB) {
+          continue;
+        }
+        
+        // If a successor is not one of the blocks ancestor's, then this
+        // terminator instruction determines whether the instruction
+        // will be executed or not
+        isMandatory = Starred.find(*S) == Starred.end();
+      }
+
+      if (isMandatory) {
+        Deps.insert(Ancestor->getTerminator());
+        getDeps(LI, Ancestor->getTerminator(), Deps);
+      }
+    }
+  }
+
   // Adds dependencies of the Instructions in Set to DepSet.
   // Dependencies are considered to be the operators of an Instruction
   // with the exceptions of calls. In case a LoadInst is a dependency
@@ -307,13 +440,15 @@ protected:
   // is true.
   bool followDeps(set<Instruction *> &Set, set<Instruction *> &DepSet,
                   bool followStores = true, bool followCalls = true) {
-    bool res = true;
+    bool valid = true;
     queue<Instruction *> Q;
     for (set<Instruction *>::iterator I = Set.begin(), E = Set.end();
-         I != E && res; ++I) {
+         I != E; ++I) {
       enqueueOperands(*I, DepSet, Q);
     }
-    while (!Q.empty() && res) {
+    
+    while (!Q.empty()) {
+      bool res = true;
       Instruction *Inst = Q.front();
       Q.pop();
 
@@ -324,12 +459,12 @@ protected:
 
         res = onlyReadsMemory || annotatedToBeLocal;
         if (!res) {
-          printStart() << " !call " << *Inst << "!>\n";
+          errs() << "<!call " << *Inst << "!>\n";
         }
-      } else if (!HoistAliasingStores && StoreInst::classof(Inst)) {
+      } else if (StoreInst::classof(Inst)) {
         res = isLocalPointer(((StoreInst *)Inst)->getPointerOperand());
         if (!res) {
-          printStart() << " <!store " << *Inst << "!>\n";
+          errs() << " <!store " << *Inst << "!>\n";
         }
       }
       if (res) {
@@ -341,9 +476,12 @@ protected:
         if (followCalls) {
           res = checkCalls(Inst);
         }
+      } else {
+        valid = false;
       }
+      
     }
-    return res;
+    return valid;
   }
 
   // Convinience call
@@ -541,6 +679,110 @@ protected:
     }
   }
 
+  bool swoopify(Function & F){
+    LI = &getAnalysis<LoopInfoWrapperPass>(F).getLoopInfo();
+
+    // We need to manually construct BasicAA directly in order to disable
+    // its use of other function analyses.
+    BasicAAResult BAR(createLegacyPMBasicAAResult(*this, F));
+
+    // Construct our own AA results for this function. We do this manually to
+    // work around the limitations of the legacy pass manager.
+    AAResults AAR(createLegacyPMAAResults(*this, F, BAR));
+    AA = &AAR;
+
+    list<LoadInst *> toHoist;   // LoadInsts to hoist
+    findAccessInsts(LI, F, toHoist, IndirThresh);
+
+
+    printStart() << "Indir: " << IndirThresh << ", " << toHoist.size() << " load(s) in access phase.\n";
+
+    if (toHoist.empty()) {
+      printStart() << "Disqualified: no loads to hoist\n";
+      return false;
+    }
+
+    bool succeeded = swoopifyCore(F, toHoist);
+    return succeeded;
+  }
+
+  bool swoopifyCore(Function &F, list<LoadInst*> toHoist) {
+  /*  OLD CODE  
+    Function *access = &F; // the original
+    Function *execute = cloneFunction(access);
+
+    list<LoadInst *> toPref;   // LoadInsts to prefetch
+    set<Instruction *> toKeep; // Instructions to keep
+    if (findAccessInsts(*access, toKeep, toPref)) {
+      // insert prefetches
+      int prefs = insertPrefetches(toPref, toKeep, true);
+      if (prefs > 0) {
+        // remove unwanted instructions
+        removeUnlisted(*access, toKeep);
+
+        // Always inline the access phase
+        access->removeFnAttr(Attribute::NoInline);
+        access->addFnAttr(Attribute::AlwaysInline);
+        // Following instructions asssumes that the first
+        // operand is the original and the second the clone.
+        insertCallToAccessFunctionSequential(access, execute);
+      } else {
+        printStart() << "Disqualified: no prefetches\n";
+      }
+    } else {
+      printStart() << "Disqualified: CFG error\n";
+    }*/
+    Function *access = &F; // the original
+    Function *execute = cloneFunction(access);
+    set<Instruction *> toKeep; // Instructions to keep
+
+    // Find Instructions required to follow the CFG.
+    findTerminators(*access, toKeep);
+
+    // Find function entry instructions
+    BasicBlock &EntryBlock = (*access).getEntryBlock();
+    for (auto I = EntryBlock.begin(), IE = EntryBlock.end(); I != IE; ++I) {
+      toKeep.insert(&*I);
+    }
+
+    // Follow CFG dependencies
+    set<Instruction *> Deps;
+
+
+    if (followDeps(toKeep, Deps)) {
+      toKeep.insert(Deps.begin(), Deps.end());
+
+      // insert prefetches
+      int prefs = insertPrefetches(toHoist, toKeep, true);
+      if (prefs > 0) {
+        // remove unwanted instructions
+        removeUnlisted(*access, toKeep);
+
+        // Always inline the access phase
+        access->removeFnAttr(Attribute::NoInline);
+        access->addFnAttr(Attribute::AlwaysInline);
+        // Following instructions asssumes that the first
+        // operand is the original and the second the clone.
+        insertCallToAccessFunctionSequential(access, execute);
+
+        // simplify the control flow graph
+        // (remove all unnecessary instructions and branches)
+        TargetTransformInfo &TTI =
+        getAnalysis<TargetTransformInfoWrapperPass>().getTTI(*access);
+        simplifyCFG(access, TTI);
+
+        return true;
+      } else {
+        printStart() << "Disqualified: no prefetches\n";
+      }
+    } else {
+      printStart() << "Disqualified: Unhandled dependencies\n";
+    }
+    return false;
+  }
+
+
+
   enum PrefInsertResult { Inserted, BadDeps, IndirLimit, Redundant };
 
   // Inserts a prefetch for every LoadInst in toPref
@@ -711,17 +953,46 @@ protected:
       }
       vF.clear();
       for(Function * F: nvF)
-      	if (seen.find(F)==seen.end()){
-        	vF.push_back(F);
-        	seen[F]=true;
-      	}
+        if (seen.find(F)==seen.end()){
+          vF.push_back(F);
+          seen[F]=true;
+        }
     }
 
     if (bTS.size() == 0) {
-      printStart() << "A marked loop is never executed in a TM section in this file: WIP\n";
+      printStart() << "ERROR: A marked loop is never executed in a TM section in this file\n";
     } else {
-    	printStart() << bTS.size() << " Corresponding TM_BEGIN()\n";
+      printStart() << bTS.size() << " Corresponding TM_BEGIN()\n";
     }
+  }
+
+  bool SimplifyCFGExclude(Function *F, TargetTransformInfo &TTI,
+                        unsigned bonusInstThreshold,
+                        vector<BasicBlock *> excludeList) {
+
+    bool modif = false;
+    Function::iterator bbI = F->begin(), bbE = F->end();
+    while (bbI != bbE) {
+      if (std::find(excludeList.begin(), excludeList.end(), &*bbI) ==
+          excludeList.end()) {
+        modif = SimplifyCFG(&*bbI, TTI, bonusInstThreshold);
+      } else {
+        modif = false;
+      }
+      if (modif)
+        bbI = F->begin(); // helper;
+      else
+        bbI++;
+    }
+  }
+
+  void simplifyCFG(Function *F, TargetTransformInfo &TTI) {
+    // simplify the CFG of A to remove dead code
+    vector<BasicBlock *> excludeInCfg;
+    excludeInCfg.push_back(&(F->getEntryBlock()));
+    excludeInCfg.push_back(F->getEntryBlock().getTerminator()->getSuccessor(0));
+
+    SimplifyCFGExclude(F, TTI, 0, excludeInCfg);
   }
 
   raw_ostream &printStart() { return (PRINTSTREAM << LIBRARYNAME << ": "); }
