@@ -1,4 +1,4 @@
-
+generate llvm dot files
 #==============================================================================#
 # Directories to ignore (do not add trailing '/'s, they skip symlinks).
 #==============================================================================#
@@ -22,6 +22,7 @@ build
 .DS_store
 # LLVM IR
 *.ll
+*.dot
 # Binaries
 *.original
 *.dae

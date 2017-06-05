@@ -72,9 +72,9 @@ static RegisterPass<TMLoopExtract>
       true, true);
 
 bool TMLoopExtract::runOnLoop(Loop *L, LPPassManager &LPM) {
-  // find the loops
+  // Find the loops
   if (IsDae) {
-    // the loop has to be marked, but not its parent
+    // The loop has to be marked
     bool isMarked = L->getHeader()->getName().str().find(F_KERNEL_SUBSTR) 
       != string::npos && L->getHeader()->getParent()->getName().str().find(
       F_KERNEL_SUBSTR) == string::npos;

@@ -53,11 +53,10 @@ struct TMLoopChunk : public LoopPass {
   bool runOnLoop(Loop *L, LPPassManager &) {
     BasicBlock *h = L->getHeader();
     Function *F = h->getParent();
-    
+
+    int nb;
     if (L->getHeader()->getName().str().find(F_KERNEL_SUBSTR) != string::npos) { 
-
       //Do nothing here, as Loop Chunking is currently disabled for trasactionnal memory
-
     }
     return false;
   }

@@ -876,6 +876,7 @@ TMfindBestRemoveTask (TM_ARGDECL  findBestTaskArg_t* argPtr)
     float bestLocalLogLikelihood = oldLocalLogLikelihood;
 
     long i;
+#   pragma clang loop vectorize_width(1337)
     for (i = 0; i < numParent; i++) {
 
         query_t* queryPtr = (query_t*)PVECTOR_AT(origParentQueryVectorPtr, i);
@@ -993,6 +994,8 @@ TMfindBestReverseTask (TM_ARGDECL  findBestTaskArg_t* argPtr)
 
     long i;
 
+
+#   pragma clang loop vectorize_width(1337)
     for (i = 0; i < numParent; i++) {
 
         query_t* queryPtr = (query_t*)PVECTOR_AT(toOrigParentQueryVectorPtr, i);
@@ -1015,7 +1018,6 @@ TMfindBestReverseTask (TM_ARGDECL  findBestTaskArg_t* argPtr)
         PVECTOR_CLEAR(parentQueryVectorPtr);
 
         long p;
-#       pragma clang loop vectorize_width(1337)
         for (p = 0; p < numParent; p++) {
             if (p != fromId) {
                 query_t* queryPtr = PVECTOR_AT(toOrigParentQueryVectorPtr, p);

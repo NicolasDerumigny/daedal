@@ -108,17 +108,16 @@ public:
         PRINTSTREAM << "\n";
         printStart().write_escaped(fI->getName()) << ":\n";
 
-        if (!DontUseTM){
-          set<BasicBlock *> bTS;
-          getBeginTMSection(&(*fI), M, bTS);
-        }
-
         change |= swoopify(*fI);
-      } else if (isMain(*fI)) {
+      } /*else if (isMain(*fI)) {
         insertCallInitPAPI(&*fI);
         change = true;
-      }
+      }*/
     }
+
+    //DEBUG
+    //M.dump();
+    printStart()<<"End\n";
 
     return change;
   }
@@ -195,11 +194,11 @@ protected:
     return closest;
   }
 
-  void filterLoadsOnIndir(LoopInfo *LI, list<LoadInst *> &LoadList, list<LoadInst *> &IndirList,
+  void filterLoadsOnIndir(list<LoadInst *> &LoadList, list<LoadInst *> &IndirList,
                         unsigned int IndirThresh) {
     for (list<LoadInst *>::iterator I = LoadList.begin(), E = LoadList.end(); I != E; ++I) {
       set<Instruction *> Deps;
-      getDeps(LI, *I, Deps);
+      getDeps(*I, Deps);
       int DataIndirCount = count_if(Deps.begin(), Deps.end(),
                                     [&](Instruction *DepI){return isa<LoadInst>(DepI) && LI->getLoopFor(DepI->getParent());});
       bool UnderDataThreshold = DataIndirCount <= IndirThresh;
@@ -213,25 +212,25 @@ protected:
     }
   }
 
-  void getRequirementsInIteration(LoopInfo *LI, Instruction *I, set<Instruction *> &DepSet, bool followStores = true) {
+  void getRequirementsInIteration(Instruction *I, set<Instruction *> &DepSet, bool followStores = true) {
     set<Instruction*> DataDeps;
-    getDeps(LI, I, DataDeps, followStores);
+    getDeps(I, DataDeps, followStores);
     for (Instruction *DataDep : DataDeps) {
-      getControlDeps(LI, DataDep, DepSet);
+      getControlDeps(DataDep, DepSet);
     }
     DepSet.insert(DataDeps.begin(), DataDeps.end());
   }
 
-  void filterLoadsOnInterferingDeps(LoopInfo *LI, list<LoadInst *> &Loads,
+  void filterLoadsOnInterferingDeps(list<LoadInst *> &Loads,
                                             list<LoadInst *> &Hoistable, Function &F) {
       // Hoistable, if CFG to this block doesn't require global stores / calls
       for (auto L = Loads.begin(), LE = Loads.end(); L != LE; ++L) {
         // this loads immediate deps
         set<Instruction *> Deps;
 
-        // this laads populated deps in followDeps
+        // this loads populated deps in followDeps
         set<Instruction *> DepSet;
-        getRequirementsInIteration(LI, *L, Deps);
+        getRequirementsInIteration(*L, Deps);
         if (followDeps(Deps, DepSet)) {
           Hoistable.push_back(*L);
         }
@@ -239,7 +238,7 @@ protected:
   }
 
 
-  void findAccessInsts(LoopInfo *LI, Function &fun, list<LoadInst *> &toHoist, unsigned int IndirThresh) {
+  void findAccessInsts(Function &fun, list<LoadInst *> &toHoist, unsigned int IndirThresh) {
     list<LoadInst *> LoadList, VisibleList, IndirLoads;
 
     unsigned int BadDeps, Indir;
@@ -250,40 +249,18 @@ protected:
     findVisibleLoads(LoadList, VisibleList);
 
     // Filter on the number of allowed indirections to hoist
-    filterLoadsOnIndir(LI, VisibleList, IndirLoads, IndirThresh);
+    filterLoadsOnIndir(VisibleList, IndirLoads, IndirThresh);
     Indir = VisibleList.size() - IndirLoads.size();
 
     anotateStores(fun, IndirLoads);
 
     // Hoistable depending on terminator instructions
-    filterLoadsOnInterferingDeps(LI, IndirLoads, toHoist, fun);
+    filterLoadsOnInterferingDeps(IndirLoads, toHoist, fun);
 
     BadDeps = IndirLoads.size() - toHoist.size();
 
     printStart() << "(BadDeps: " << BadDeps << ", Indir: " << Indir << ")\n";
   }
-
-
-/* OLD
-  bool virtual findAccessInsts(Function &fun, set<Instruction *> &toKeep,
-                               list<LoadInst *> &toPref) {
-    // Find instructions to keep
-    // Find load instructions
-    list<LoadInst *> LoadList;
-    findLoads(fun, LoadList);
-    findVisibleLoads(LoadList, toPref);
-    // anotate stores
-    anotateStores(fun, toPref);
-    // Find Instructions required to follow the CFG.
-    findTerminators(fun, toKeep);
-    // Follow CFG dependencies
-    set<Instruction *> Deps;
-    bool res = followDeps(toKeep, Deps);
-    toKeep.insert(Deps.begin(), Deps.end());
-
-    return res;
-  }*/
-
 
   // Returns true iff F is an F_kernel function.
   bool isFKernel(Function &F) {
@@ -344,7 +321,7 @@ protected:
   }
 
 
-  void getDeps(LoopInfo *LI, Instruction *I, set<Instruction *> &DepSet, bool followStores = true) {
+  void getDeps(Instruction *I, set<Instruction *> &DepSet, bool followStores = true) {
     queue<Instruction *> Q;
     Q.push(I);
 
@@ -363,20 +340,20 @@ protected:
       // TODO: consider: do we want to include deps that are
       // in the entry block?
       if (L && Inst->getParent() == H && isa<PHINode>(Inst)) {
-  // do not follow backedges to the head of the loop;
-  // here we only consider requirements within _one_
-  // iteration
-  continue;
+        // do not follow backedges to the head of the loop;
+        // here we only consider requirements within _one_
+        // iteration
+        continue;
       }
     
       enqueueOperands(Inst, DepSet, Q);
       if (followStores && LoadInst::classof(Inst)) {
-  enqueueStores((LoadInst *)Inst, DepSet, Q);
+        enqueueStores((LoadInst *)Inst, DepSet, Q);
       }
     }
   }
 
-  void getControlDeps(LoopInfo *LI, Instruction *I, set<Instruction *> &Deps) {
+  void getControlDeps(Instruction *I, set<Instruction *> &Deps) {
     set<BasicBlock *> Starred;
     BasicBlock *BB = I->getParent();
     std::queue<BasicBlock *> Ancestors;
@@ -425,7 +402,7 @@ protected:
 
       if (isMandatory) {
         Deps.insert(Ancestor->getTerminator());
-        getDeps(LI, Ancestor->getTerminator(), Deps);
+        getDeps(Ancestor->getTerminator(), Deps);
       }
     }
   }
@@ -692,7 +669,7 @@ protected:
     AA = &AAR;
 
     list<LoadInst *> toHoist;   // LoadInsts to hoist
-    findAccessInsts(LI, F, toHoist, IndirThresh);
+    findAccessInsts(F, toHoist, IndirThresh);
 
 
     printStart() << "Indir: " << IndirThresh << ", " << toHoist.size() << " load(s) in access phase.\n";
@@ -707,76 +684,59 @@ protected:
   }
 
   bool swoopifyCore(Function &F, list<LoadInst*> toHoist) {
-  /*  OLD CODE  
-    Function *access = &F; // the original
-    Function *execute = cloneFunction(access);
+    Function *execute = &F; // the original
+    Function *access = cloneFunction(execute);
+    set<Instruction *> toKeep, Deps, DepSet;
 
-    list<LoadInst *> toPref;   // LoadInsts to prefetch
-    set<Instruction *> toKeep; // Instructions to keep
-    if (findAccessInsts(*access, toKeep, toPref)) {
-      // insert prefetches
-      int prefs = insertPrefetches(toPref, toKeep, true);
-      if (prefs > 0) {
-        // remove unwanted instructions
-        removeUnlisted(*access, toKeep);
-
-        // Always inline the access phase
-        access->removeFnAttr(Attribute::NoInline);
-        access->addFnAttr(Attribute::AlwaysInline);
-        // Following instructions asssumes that the first
-        // operand is the original and the second the clone.
-        insertCallToAccessFunctionSequential(access, execute);
-      } else {
-        printStart() << "Disqualified: no prefetches\n";
-      }
-    } else {
-      printStart() << "Disqualified: CFG error\n";
-    }*/
-    Function *access = &F; // the original
-    Function *execute = cloneFunction(access);
-    set<Instruction *> toKeep; // Instructions to keep
-
-    // Find Instructions required to follow the CFG.
+    // Add terminators
     findTerminators(*access, toKeep);
 
-    // Find function entry instructions
-    BasicBlock &EntryBlock = (*access).getEntryBlock();
-    for (auto I = EntryBlock.begin(), IE = EntryBlock.end(); I != IE; ++I) {
-      toKeep.insert(&*I);
+    for (LoadInst * inst : toHoist) {
+      toKeep.insert(inst);
+      getRequirementsInIteration(inst, Deps);
+      followDeps(Deps, DepSet);
     }
 
-    // Follow CFG dependencies
-    set<Instruction *> Deps;
+
+    // Keep all data dependencies
+    toKeep.insert(DepSet.begin(), DepSet.end());
 
 
-    if (followDeps(toKeep, Deps)) {
-      toKeep.insert(Deps.begin(), Deps.end());
+    // insert prefetches
+    int prefs = insertPrefetches(toHoist, toKeep, true);
+    printStart()<<"Prefetched Loads:\n";
+    for (auto I: toHoist) {
+      toKeep.insert(I);
+      I->print(errs());
+      errs()<<"\n";
+    }
+    if (prefs > 0) {
+      // remove unwanted instructions
+      removeUnlisted(*access, toKeep);
 
-      // insert prefetches
-      int prefs = insertPrefetches(toHoist, toKeep, true);
-      if (prefs > 0) {
-        // remove unwanted instructions
-        removeUnlisted(*access, toKeep);
+      // Always inline the access phase
+      access->removeFnAttr(Attribute::NoInline);
+      access->addFnAttr(Attribute::AlwaysInline);
 
-        // Always inline the access phase
-        access->removeFnAttr(Attribute::NoInline);
-        access->addFnAttr(Attribute::AlwaysInline);
-        // Following instructions asssumes that the first
-        // operand is the original and the second the clone.
-        insertCallToAccessFunctionSequential(access, execute);
 
-        // simplify the control flow graph
-        // (remove all unnecessary instructions and branches)
-        TargetTransformInfo &TTI =
-        getAnalysis<TargetTransformInfoWrapperPass>().getTTI(*access);
-        simplifyCFG(access, TTI);
-
-        return true;
-      } else {
-        printStart() << "Disqualified: no prefetches\n";
+      // Following instructions asssumes that the first
+      // operand is the original and the second the clone.
+      set<BasicBlock *> bTS;
+      if (!DontUseTM){
+        getBeginTMSection(&F, *(F.getParent()), bTS);
       }
+
+      insertCallToAccessFunctionSequential(access, execute, bTS);
+
+/*      // simplify the control flow graph
+      // (remove all unnecessary instructions and branches)
+      TargetTransformInfo &TTI =
+      getAnalysis<TargetTransformInfoWrapperPass>().getTTI(*access);
+      simplifyCFG(access, TTI);*/
+
+      return true;
     } else {
-      printStart() << "Disqualified: Unhandled dependencies\n";
+      printStart() << "Disqualified: no prefetches\n";
     }
     return false;
   }
@@ -965,7 +925,7 @@ protected:
       printStart() << bTS.size() << " Corresponding TM_BEGIN()\n";
     }
   }
-
+/*
   bool SimplifyCFGExclude(Function *F, TargetTransformInfo &TTI,
                         unsigned bonusInstThreshold,
                         vector<BasicBlock *> excludeList) {
@@ -984,16 +944,16 @@ protected:
       else
         bbI++;
     }
-  }
+  }*/
 
-  void simplifyCFG(Function *F, TargetTransformInfo &TTI) {
+/*  void simplifyCFG(Function *F, TargetTransformInfo &TTI) {
     // simplify the CFG of A to remove dead code
     vector<BasicBlock *> excludeInCfg;
     excludeInCfg.push_back(&(F->getEntryBlock()));
     excludeInCfg.push_back(F->getEntryBlock().getTerminator()->getSuccessor(0));
 
     SimplifyCFGExclude(F, TTI, 0, excludeInCfg);
-  }
+  }*/
 
   raw_ostream &printStart() { return (PRINTSTREAM << LIBRARYNAME << ": "); }
 };

@@ -45,7 +45,7 @@ using namespace std;
 #define CallingDAE_
 
 void insertCallToAccessFunction(Function *F, Function *cF);
-void insertCallToAccessFunctionSequential(Function *F, Function *cF);
+void insertCallToAccessFunctionSequential(Function *F, Function *cF, vector<Instruction> * BeginTrans);
 void insertCallToPAPI(CallInst *access, CallInst *execute);
 void insertCallOrigToPAPI(CallInst *execute);
 void insertCallInitPAPI(CallInst *mainF);
@@ -145,7 +145,7 @@ void insertCallToAccessFunction(Function *F, Function *cF) {
   }
 }
 
-void insertCallToAccessFunctionSequential(Function *F, Function *cF) {
+void insertCallToAccessFunctionSequential(Function *F, Function *cF, set<BasicBlock *> BeginTrans) {
   CallInst *I;
   BasicBlock *b;
 
@@ -155,16 +155,24 @@ void insertCallToAccessFunctionSequential(Function *F, Function *cF) {
 
       I = dyn_cast<CallInst>(*i);
       b = I->getParent();
-      BasicBlock::iterator helper(I);
-      CallInst *ci = dyn_cast<CallInst>(I->clone());
-      ci->setCalledFunction(cF);
-      b->getInstList().insertAfter(helper, ci);
 
-      i++;
-      I->replaceAllUsesWith(ci);
+      if (BeginTrans.size()==0) {
+        //No TM_BEGIN or TM_BEGIN detection disabled
+        BasicBlock::iterator helper(I);
+        CallInst *ci = dyn_cast<CallInst>(I->clone());
+        ci->setCalledFunction(cF);
+        b->getInstList().insertAfter(helper, ci);
+        I->replaceAllUsesWith(ci);
+      } else {
+        //TODO
+        errs()<<"ERROR: Not implemented\n";
+        exit(-1);
+      }
 
-      insertCallToPAPI(I, ci);
+      //insertCallToPAPI(I, ci);
     }
+
+    i++;
   }
 }
 
