@@ -684,8 +684,8 @@ protected:
   }
 
   bool swoopifyCore(Function &F, list<LoadInst*> toHoist) {
-    Function *execute = &F; // the original
-    Function *access = cloneFunction(execute);
+    Function *access = &F; // the original, im which the prefetch will be put
+    Function *execute = cloneFunction(access);
     set<Instruction *> toKeep, Deps, DepSet;
 
     // Add terminators
@@ -704,12 +704,8 @@ protected:
 
     // insert prefetches
     int prefs = insertPrefetches(toHoist, toKeep, true);
-    printStart()<<"Prefetched Loads:\n";
-    for (auto I: toHoist) {
-      toKeep.insert(I);
-      I->print(errs());
-      errs()<<"\n";
-    }
+    
+
     if (prefs > 0) {
       // remove unwanted instructions
       removeUnlisted(*access, toKeep);

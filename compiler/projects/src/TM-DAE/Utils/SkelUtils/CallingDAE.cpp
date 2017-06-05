@@ -154,15 +154,12 @@ void insertCallToAccessFunctionSequential(Function *F, Function *cF, set<BasicBl
     if (isa<CallInst>(*i)) {
 
       I = dyn_cast<CallInst>(*i);
-      b = I->getParent();
 
       if (BeginTrans.size()==0) {
         //No TM_BEGIN or TM_BEGIN detection disabled
-        BasicBlock::iterator helper(I);
         CallInst *ci = dyn_cast<CallInst>(I->clone());
         ci->setCalledFunction(cF);
-        b->getInstList().insertAfter(helper, ci);
-        I->replaceAllUsesWith(ci);
+        ci->insertAfter(I);
       } else {
         //TODO
         errs()<<"ERROR: Not implemented\n";
