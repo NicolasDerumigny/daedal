@@ -117,7 +117,6 @@ public:
 
     //DEBUG
     //M.dump();
-    printStart()<<"End\n";
 
     return change;
   }
@@ -550,54 +549,6 @@ protected:
     }
   }
 
-  bool checkCalls(Instruction *I) {
-    bool hasNoModifyingCalls = true;
-
-    BasicBlock *InstBB = I->getParent();
-    std::queue<BasicBlock *> BBQ;
-    std::set<BasicBlock *> BBSet;
-
-    BBQ.push(InstBB);
-    // Collect all predecessor blocks
-    while (!BBQ.empty()) {
-      BasicBlock *BB = BBQ.front();
-      BBQ.pop();
-      for (pred_iterator pI = pred_begin(BB), pE = pred_end(BB); pI != pE;
-           ++pI) {
-        if (BBSet.insert(*pI).second) {
-          BBQ.push(*pI);
-        }
-      }
-    }
-
-    for (Value::user_iterator U = I->user_begin(), UE = I->user_end();
-         U != UE && hasNoModifyingCalls; ++U) {
-      Instruction *UserInst = (Instruction *)*U;
-      for (Value::user_iterator UU = UserInst->user_begin(),
-                                UUE = UserInst->user_end();
-           UU != UUE && hasNoModifyingCalls; ++UU) {
-        if (!CallInst::classof(*UU)) {
-          continue;
-        }
-
-        if (BBSet.find(((Instruction *)(*UU))->getParent()) == BBSet.end()) {
-          continue;
-        }
-
-        CallInst *Call = (CallInst *)*UU;
-        hasNoModifyingCalls = Call->onlyReadsMemory();
-
-        // Allow prefetches
-        if (!hasNoModifyingCalls && isa<IntrinsicInst>(Call) &&
-            ((IntrinsicInst *)Call)->getIntrinsicID() == Intrinsic::prefetch) {
-          hasNoModifyingCalls = true;
-        }
-      }
-    }
-
-    return hasNoModifyingCalls;
-  }
-
   // Returns true iff Pointer does have a local destination.
   bool isLocalPointer(Value *Pointer) {
     if (!Instruction::classof(Pointer)) {
@@ -683,58 +634,84 @@ protected:
     return succeeded;
   }
 
-  bool swoopifyCore(Function &F, list<LoadInst*> toHoist) {
-    Function *access = &F; // the original, im which the prefetch will be put
+  bool swoopifyCore(Function &F, list<LoadInst*> toHoist, bool forceNotTM = false) {
+    Function *access = &F; 
+    // the original, in which the prefetch will be put
     Function *execute = cloneFunction(access);
     set<Instruction *> toKeep, Deps, DepSet;
+    set<BasicBlock *> bTS;
+    map<BasicBlock *, vector<Value *>> funArgs;
+    list<LoadInst*> backup = toHoist;
+    int prefs;
 
-    // Add terminators
-    findTerminators(*access, toKeep);
 
-    for (LoadInst * inst : toHoist) {
-      toKeep.insert(inst);
-      getRequirementsInIteration(inst, Deps);
-      followDeps(Deps, DepSet);
+    if (DontUseTM || forceNotTM) {
+      // Add terminators
+      findTerminators(*access, toKeep);
+
+      for (LoadInst * inst : toHoist) {
+        toKeep.insert(inst);
+        getRequirementsInIteration(inst, Deps);
+        followDeps(Deps, DepSet);
+      }
+
+      // Keep all data dependencies
+      toKeep.insert(DepSet.begin(), DepSet.end());
+
+
+      // insert prefetches
+      prefs = insertPrefetches(toHoist, toKeep, true);
+    } else {
+      SelectHoistForBeginTMSection(toHoist, DepSet, access, bTS, funArgs);
+
+      findTerminators(*access, toKeep);
+
+      for (LoadInst * inst : toHoist) {
+        toKeep.insert(inst);
+        getRequirementsInIteration(inst, Deps);
+        followDeps(Deps, DepSet);
+      }
+
+
+      // Keep all data dependencies
+      toKeep.insert(DepSet.begin(), DepSet.end());
+
+
+      // insert prefetches
+      prefs = insertPrefetches(toHoist, toKeep, true);
     }
-
-
-    // Keep all data dependencies
-    toKeep.insert(DepSet.begin(), DepSet.end());
-
-
-    // insert prefetches
-    int prefs = insertPrefetches(toHoist, toKeep, true);
     
 
     if (prefs > 0) {
       // remove unwanted instructions
       removeUnlisted(*access, toKeep);
+      // simplify the control flow graph
+      // (remove all unnecessary instructions and branches)
+      TargetTransformInfo &TTI =
+      getAnalysis<TargetTransformInfoWrapperPass>().getTTI(*access);
+      simplifyCFG(access, TTI);
 
       // Always inline the access phase
       access->removeFnAttr(Attribute::NoInline);
       access->addFnAttr(Attribute::AlwaysInline);
+      
+    if (DontUseTM || forceNotTM) {
+      insertCallToAccessFunctionSequential(access, execute);
+    } else {
+      insertCallToAccessFunctionBeforeTM(bTS, access, execute, funArgs);
+    }
 
-
-      // Following instructions asssumes that the first
-      // operand is the original and the second the clone.
-      set<BasicBlock *> bTS;
-      if (!DontUseTM){
-        getBeginTMSection(&F, *(F.getParent()), bTS);
-      }
-
-      insertCallToAccessFunctionSequential(access, execute, bTS);
-
-/*      // simplify the control flow graph
-      // (remove all unnecessary instructions and branches)
-      TargetTransformInfo &TTI =
-      getAnalysis<TargetTransformInfoWrapperPass>().getTTI(*access);
-      simplifyCFG(access, TTI);*/
 
       return true;
     } else {
-      printStart() << "Disqualified: no prefetches\n";
+      if (DontUseTM || forceNotTM){
+        printStart() << "Disqualified: no prefetches\n";
+        return false;
+      } else {
+        printStart() << "No prefetches can be hoist outside TM Section, falling back to original mode\n";
+        return swoopifyCore(F, backup, true);
+      }
     }
-    return false;
   }
 
 
@@ -883,26 +860,87 @@ protected:
   }
 
 
+  //init loadToVal: LInst -> Value in the current call
+  void initLoadToVal(list<LoadInst * > & toHoist, map<LoadInst *, Value*> & loadToVal) {
+    list<LoadInst * > SureToHoist;
+    for (LoadInst * LInst : toHoist) {
+      bool isPresent = false;
+      Function::ArgumentListType & ArgLst = LInst->getParent()->
+                                 getParent()->getArgumentList();
+      for (ilist_iterator<Argument> b = ArgLst.begin(), e = ArgLst.end();
+                                                            b != e; ++b) {
+
+        //TODO: very fragile
+        if ((cast<GetElementPtrInst> (LInst->getPointerOperand()))->getPointerOperand() == &(*b)){
+          loadToVal[LInst] = &(*b);
+          isPresent = true;
+        }
+      }
+
+      if (isPresent)
+        SureToHoist.push_back(LInst);
+    }
+    toHoist = SureToHoist;
+  }
+
+
+  // Update loadToVal: LInst -> Value in the current call
+  // by taking the ith argument of the call
+  void updateLoadToVal(CallInst * I, Function * F, list<LoadInst * > & toHoist, map<LoadInst *, Value*> & loadToVal) {
+    list<LoadInst * > SureToHoist;
+    for (LoadInst * LInst : toHoist) {
+      int argNbr = -1;
+      for (ilist_iterator<Argument> b = F->getArgumentList().begin(),
+                        e = F->getArgumentList().end();b != e; ++b) {
+        ++argNbr;
+        if (loadToVal[LInst] == &(*b)) { 
+          loadToVal[LInst] = I->arg_begin()[argNbr];
+          SureToHoist.push_back(LInst);
+          break;
+        }
+      }
+    }
+    toHoist = SureToHoist;
+  }
+
   // Find all TM_Begin that can precede initFun by a traversal
-  // of the CFG
-  void getBeginTMSection(Function * initFun, Module & M, set<BasicBlock *> & bTS) {
+  // of the CFG and keep only the instructions that can be hoisted befor anny TM_BEGIN
+  // Collect also the argument with which the function is called
+  int SelectHoistForBeginTMSection(list<LoadInst * > & toHoist, 
+    set<Instruction * > & DepSet, Function * access, set<BasicBlock *> & bTS,
+    map<BasicBlock *, vector <Value *>> & funArgs) {
+    Module * M = access->getParent();
     vector<Function *> vF;
     map<Function *, bool> seen;
-    vF.push_back(initFun);
-    seen[initFun]=true;
+    map<LoadInst *, Value*> loadToVal;
+    map<Function*, map<LoadInst *, Value*>> BFStoloadToVal;
+    vF.push_back(access);
+    seen[access]=true;
+    BFStoloadToVal[access] = map<LoadInst *, Value*>();
+    initLoadToVal(toHoist,  BFStoloadToVal[access]);
 
+
+    // BFS overs the function calls to detect the TM_BEGIN section
     while(bTS.size() == 0 && vF.size() != 0) {
       set<Function *> nvF;
       for(Function * F: vF) {
-        vector<Instruction*> vI;
-        getCallers(&M, F, vI);
+        vector< CallInst *> vI;
+        getCallers(M, F, vI);
+        // Detection of the TM_BEGIN: pushed either in new Vector Fun (nVF)
+        // if there is no TM_BEGIN, and continue the route, or in BTS
         if (vI.size() == 0){
           printStart()<<"WARNING: " <<
           "A marked loop might be executed outside a TM section\n";
         }
+
+
         vector<BasicBlock *> vBlockWithoutBTS;
-        for(Instruction* I : vI)
-          getBeginTransactionalSection(I-> getParent(), bTS, vBlockWithoutBTS);
+        for (CallInst * I: vI) {
+          BFStoloadToVal[I->getParent()->getParent()]=BFStoloadToVal[F];
+          //have different loadToVar for each part of the BFS
+          updateLoadToVal(I, F, toHoist, BFStoloadToVal[I->getParent()->getParent()]);
+          getBeginTransactionalSection(toHoist, I, bTS, vBlockWithoutBTS, funArgs, BFStoloadToVal[I->getParent()->getParent()]);
+        }
 
         for(BasicBlock * BB: vBlockWithoutBTS)
           nvF.insert(BB->getParent());
@@ -920,8 +958,10 @@ protected:
     } else {
       printStart() << bTS.size() << " Corresponding TM_BEGIN()\n";
     }
+
+    return toHoist.size();
   }
-/*
+
   bool SimplifyCFGExclude(Function *F, TargetTransformInfo &TTI,
                         unsigned bonusInstThreshold,
                         vector<BasicBlock *> excludeList) {
@@ -940,16 +980,16 @@ protected:
       else
         bbI++;
     }
-  }*/
+  }
 
-/*  void simplifyCFG(Function *F, TargetTransformInfo &TTI) {
+  void simplifyCFG(Function *F, TargetTransformInfo &TTI) {
     // simplify the CFG of A to remove dead code
     vector<BasicBlock *> excludeInCfg;
     excludeInCfg.push_back(&(F->getEntryBlock()));
     excludeInCfg.push_back(F->getEntryBlock().getTerminator()->getSuccessor(0));
 
     SimplifyCFGExclude(F, TTI, 0, excludeInCfg);
-  }*/
+  }
 
   raw_ostream &printStart() { return (PRINTSTREAM << LIBRARYNAME << ": "); }
 };

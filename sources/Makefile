@@ -2,7 +2,7 @@
 
 BENCHMARKS = myBenchmark
 BENCHMARKS = STAMP-bayes
-BENCHMARKS= STAMP-bayes STAMP-genome STAMP-intruder STAMP-kmeans STAMP-labyrinth STAMP-ssca2  STAMP-vacation STAMP-yada
+BENCHMARKS = STAMP-bayes STAMP-genome STAMP-intruder STAMP-kmeans STAMP-labyrinth STAMP-ssca2  STAMP-vacation STAMP-yada
 LIBS-DIR = STAMP-include/lib
 
 .SECONDEXPANSION:

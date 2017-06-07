@@ -14,13 +14,16 @@
 /// the LICENSE file for details.
 //===----------------------------------------------------------------------===//
 #include "llvm/Analysis/LoopPass.h"
+#include "llvm/ADT/ilist.h"
+#include "llvm/IR/Value.h"
+#include "llvm/IR/Argument.h"
 #include "llvm/IR/BasicBlock.h"
 #include "llvm/IR/Dominators.h"
-#include "llvm/IR/Function.h"
 #include "llvm/IR/Instruction.h"
 #include "llvm/IR/InlineAsm.h"
 #include "llvm/IR/IRBuilder.h"
 #include "llvm/Transforms/Utils/Cloning.h"
+#include "llvm/IR/Function.h"
 
 #include <algorithm>
 #include <fstream>
@@ -45,15 +48,22 @@ using namespace std;
 #define CallingDAE_
 
 void insertCallToAccessFunction(Function *F, Function *cF);
-void insertCallToAccessFunctionSequential(Function *F, Function *cF, vector<Instruction> * BeginTrans);
+void insertCallToAccessFunctionSequential(Function *F, Function *cF);
+void insertCallToAccessFunctionBeforeTM(set<BasicBlock *> bTS,  Function * access, 
+     Function * execute, map<BasicBlock *, vector<Value *>> funArgs);
 void insertCallToPAPI(CallInst *access, CallInst *execute);
 void insertCallOrigToPAPI(CallInst *execute);
 void insertCallInitPAPI(CallInst *mainF);
 bool isBeginTM(BasicBlock* BB);
 bool isEndTMOrLock(BasicBlock* BB);
+bool checkCalls(Instruction *I);
 void mapArgumentsToParams(Function *F, ValueToValueMapTy *VMap);
-void getBeginTransactionalSection(BasicBlock* BB, set<BasicBlock *> & bTv, vector<BasicBlock *> & vBlockWithoutBTS);
-void getCallers(Module * M, Function * F, vector<Instruction*> & vF);
+void getBeginTransactionalSection(list<LoadInst * > & toHoist, CallInst * I, set<BasicBlock *> & bTS, vector<BasicBlock *> & vBlockWithoutBTS, map<BasicBlock *, vector<Value *>> & funArgs, map<LoadInst *, Value*> & loadToVal);
+void getCallers(Module * M, Function * F, vector<CallInst * > & vF);
+void constructArgVector(list <LoadInst *> toHoist, BasicBlock * BB, 
+  map<LoadInst *, Value*> & loadToVal, map<BasicBlock *, vector<Value *>> &funArgs);
+
+
 
 void insertCallToAccessFunction(Function *F, Function *cF) {
   CallInst *I;
@@ -145,7 +155,7 @@ void insertCallToAccessFunction(Function *F, Function *cF) {
   }
 }
 
-void insertCallToAccessFunctionSequential(Function *F, Function *cF, set<BasicBlock *> BeginTrans) {
+void insertCallToAccessFunctionSequential(Function *F, Function *cF) {
   CallInst *I;
   BasicBlock *b;
 
@@ -154,17 +164,9 @@ void insertCallToAccessFunctionSequential(Function *F, Function *cF, set<BasicBl
     if (isa<CallInst>(*i)) {
 
       I = dyn_cast<CallInst>(*i);
-
-      if (BeginTrans.size()==0) {
-        //No TM_BEGIN or TM_BEGIN detection disabled
-        CallInst *ci = dyn_cast<CallInst>(I->clone());
-        ci->setCalledFunction(cF);
-        ci->insertAfter(I);
-      } else {
-        //TODO
-        errs()<<"ERROR: Not implemented\n";
-        exit(-1);
-      }
+      CallInst *ci = dyn_cast<CallInst>(I->clone());
+      ci->setCalledFunction(cF);
+      ci->insertAfter(I);
 
       //insertCallToPAPI(I, ci);
     }
@@ -172,6 +174,28 @@ void insertCallToAccessFunctionSequential(Function *F, Function *cF, set<BasicBl
     i++;
   }
 }
+
+
+void insertCallToAccessFunctionBeforeTM(set<BasicBlock *> bTS, Function * access, Function * execute, map<BasicBlock *, vector<Value *>> funArgs) {
+  CallInst *I;
+  BasicBlock *b;
+
+  //Set all call to access to execute instead
+  for(Value::user_iterator i = access->user_begin(), e = access->user_end();i != e; ++i)
+    if (isa<CallInst>(*i)) {
+      I = dyn_cast<CallInst>(*i);
+      I->setCalledFunction(execute);
+    }
+
+  //Place the accesses
+  for(BasicBlock * BB : bTS) {
+    IRBuilder<> build(BB);
+    build.SetInsertPoint(BB->BasicBlock::getFirstNonPHI());
+    CallInst * ci = build.CreateCall(access, ArrayRef <Value *> (funArgs[BB]));
+    //TODO: number of arguments?
+  }
+}
+
 
 void mapArgumentsToParams(Function *F, ValueToValueMapTy *VMap) {
   CallInst *I;
@@ -377,20 +401,27 @@ void insertCallOrigToPAPI(CallInst *execute) {
 }
 
 
-void getBeginTransactionalSection(BasicBlock* BB, set<BasicBlock *> & bTS, vector<BasicBlock *> & vBlockWithoutBTS) {
+void getBeginTransactionalSection(list<LoadInst * > & toHoist, CallInst * I, set<BasicBlock *> & bTS, vector<BasicBlock *> & vBlockWithoutBTS, 
+  map<BasicBlock *, vector<Value *>> & funArgs, map<LoadInst *, Value*> & loadToVal) {
+  BasicBlock * BB = I -> getParent();
+
+
   if(isBeginTM(BB)){
+    //construct the argument vector
+    constructArgVector(toHoist, BB, loadToVal, funArgs);
     bTS.insert(BB);
     return;
   }
 
   //Simple BFS to find all the BeginTM block that directly
-  //precede block BB
+  //precede block BB. If an instruction interferes with one
+  //of the loads to hoist, this load is suppressed.
   queue<BasicBlock*> queue;
   map<BasicBlock*, bool> visited;
   queue.push(BB);
 
   while(!queue.empty()) {   
-    BasicBlock* current;
+    BasicBlock * current;
     current = queue.front();
     visited[current] = true;
     queue.pop();
@@ -398,8 +429,11 @@ void getBeginTransactionalSection(BasicBlock* BB, set<BasicBlock *> & bTS, vecto
     for (pred_iterator PI = pred_begin(current), E = pred_end(current);
          PI != E; ++PI) {
       if(visited.find(*PI) == visited.end()) {
-          if (isBeginTM(*PI))
+          if (isBeginTM(*PI)){
+            constructArgVector(toHoist, *PI, loadToVal, funArgs);
+
             bTS.insert(*PI);
+          }
           else
             if (!isEndTMOrLock(*PI))
               if (pred_begin(*PI) == pred_end(*PI))
@@ -416,12 +450,12 @@ void getBeginTransactionalSection(BasicBlock* BB, set<BasicBlock *> & bTS, vecto
 
 
 bool isBeginTM(BasicBlock* BB) {
-  for (BasicBlock::iterator I = BB->begin(), E = BB->end(); I != E; ++I)
+  for (BasicBlock::iterator I = BB->begin(), E = BB->end(); I != E; ++I){
     if(isa<CallInst>(I) && cast<CallInst>(I) -> isInlineAsm())
       if(isa<InlineAsm> (cast<CallInst>(I)->getCalledValue()) &&
         cast<InlineAsm>(cast<CallInst>(I)->getCalledValue())->getAsmString() == TM_BEGIN_ASM)
          return true;
-
+  }
   return false;
 }
 
@@ -442,7 +476,7 @@ bool isEndTMOrLock(BasicBlock* BB) {
 }
 
 
-void getCallers(Module * M, Function * F, vector<Instruction*> & vF){
+void getCallers(Module * M, Function * F, vector<CallInst * > & vF){
   //Gather in vF the functions inside which there is a call
   //to F
   for (Module::iterator MI = M->begin(), mE = M->end(); MI != mE; ++MI){
@@ -450,10 +484,75 @@ void getCallers(Module * M, Function * F, vector<Instruction*> & vF){
       for (BasicBlock::iterator I = (*FI).begin(), E = (*FI).end(); I != E; ++I) {
         if (CallInst *call = dyn_cast<CallInst> (I)) {
           if (call->getCalledFunction() == F) {
-              vF.push_back(call);
+              vF.push_back(cast<CallInst> (call));
           }
         }
       }
+    }
+  }
+}
+
+
+
+bool checkCalls(Instruction *I) {
+  bool hasNoModifyingCalls = true;
+
+  BasicBlock *InstBB = I->getParent();
+  std::queue<BasicBlock *> BBQ;
+  std::set<BasicBlock *> BBSet;
+
+  BBQ.push(InstBB);
+  // Collect all predecessor blocks
+  while (!BBQ.empty()) {
+    BasicBlock *BB = BBQ.front();
+    BBQ.pop();
+    for (pred_iterator pI = pred_begin(BB), pE = pred_end(BB); pI != pE;
+         ++pI) {
+      if (BBSet.insert(*pI).second) {
+        BBQ.push(*pI);
+      }
+    }
+  }
+
+  for (Value::user_iterator U = I->user_begin(), UE = I->user_end();
+       U != UE && hasNoModifyingCalls; ++U) {
+    Instruction *UserInst = (Instruction *)*U;
+    for (Value::user_iterator UU = UserInst->user_begin(),
+                              UUE = UserInst->user_end();
+         UU != UUE && hasNoModifyingCalls; ++UU) {
+      if (!CallInst::classof(*UU)) {
+        continue;
+      }
+
+      if (BBSet.find(((Instruction *)(*UU))->getParent()) == BBSet.end()) {
+        continue;
+      }
+
+      CallInst *Call = (CallInst *)*UU;
+      hasNoModifyingCalls = Call->onlyReadsMemory();
+
+      // Allow prefetches
+      if (!hasNoModifyingCalls && isa<IntrinsicInst>(Call) &&
+          ((IntrinsicInst *)Call)->getIntrinsicID() == Intrinsic::prefetch) {
+        hasNoModifyingCalls = true;
+      }
+    }
+  }
+
+  return hasNoModifyingCalls;
+}
+
+
+//construct the argument vector
+void constructArgVector(list <LoadInst *> toHoist, BasicBlock * BB, 
+  map<LoadInst *, Value*> & loadToVal, map<BasicBlock *, vector<Value *>> &funArgs){
+  map<Value *, char> seen;
+  funArgs[BB] = vector<Value *> ();
+  for (LoadInst * LInst: toHoist){
+    //TODO very fragile
+    if (seen.find(cast<GetElementPtrInst> (LInst->getPointerOperand())->getPointerOperand())==seen.end()){
+      funArgs[BB].push_back(loadToVal[LInst]);
+      seen[cast<GetElementPtrInst> (LInst->getPointerOperand())->getPointerOperand()] = 1;
     }
   }
 }

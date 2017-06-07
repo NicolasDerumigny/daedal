@@ -10,7 +10,8 @@
 # ==============================================================================
 
 CC      := clang
-CFLAGS  := -g -Wall -DOLD_RTM_MACROSES
+GCC     := gcc
+CFLAGS  := -Wall -DOLD_RTM_MACROSES -DX86make
 
 SRCS := \
 	avltree.c \
@@ -27,8 +28,15 @@ SRCS := \
         rbtree.c \
 	thread.c \
 	vector.c \
+	../gem5/m5op_x86.S\
+	../gem5/m5ops_wrapper.c
 #
 OBJS := ${SRCS:.c=.o}
+
+SRCS += ../handlers/abort_handlers.c
+
+OBJS += ../handlers/abort_handlers.a
+OBJS += ../gem5/m5op_x86.o
 
 PROG_TEST := \
 	test_bitmap \
@@ -51,8 +59,15 @@ RM := rm -f
 # ==============================================================================
 all: $(OBJS)
 
+
+../gem5/m5op_x86.o: ../gem5/m5op_x86.S
+	$(GCC) -o $@ -c $< $(CFLAGS)
+
 %.o: %.c
 	$(CC) -o $@ -c $< $(CFLAGS)
+
+%.a: %.c
+	$(CC) -static -o $@ -c $< $(CFLAGS)
 
 
 .PHONY: clean
