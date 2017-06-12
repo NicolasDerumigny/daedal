@@ -77,6 +77,12 @@ static cl::opt<bool>
 static cl::opt<bool>
     DontUseTM("dont-use-tm", cl::desc("Do no detect TM_BEGIN and put access phasis "));
 
+static cl::opt<bool>
+    HoistArgs("hoist-args", cl::desc("Hoisting function argument outside TM sections"));
+
+static cl::opt<bool>
+    Dump("dump", cl::desc("Dump the ouput .ll file (usefull for debugging)"));
+
 // If present redundant prefetches are kept.
 static cl::opt<bool> KeepRedPrefs(
     "keep-red-prefs",
@@ -115,9 +121,11 @@ public:
       }*/
     }
 
-    //DEBUG
-    //M.dump();
 
+    if (Dump) {
+        errs()<<"DUMP:\n";
+        M.dump();
+    }
     return change;
   }
 
@@ -679,8 +687,20 @@ protected:
 
       // insert prefetches
       prefs = insertPrefetches(toHoist, toKeep, true);
+
+
+      if(HoistArgs) {
+        // prefetch arguments of the called functions
+        for(BasicBlock * BB : bTS){
+          set<Value *> lastFunArg;
+          getFunArg(BB, lastFunArg);
+          prefetchArgs(BB, lastFunArg);
+          printStart()<<"Prefetching function arguments: found "
+          << lastFunArg.size()<<" values\n";
+        }
+      }
     }
-    
+
 
     if (prefs > 0) {
       // remove unwanted instructions
@@ -847,6 +867,28 @@ protected:
     return Inserted;
   }
 
+  //insert prefetch before the TM_BEGIN
+  void prefetchArgs(BasicBlock* BB, set< Value * > args) {
+    for (Value * val : args) {
+      // Make sure type is correct
+      unsigned PtrAS = val->getType()->getPointerAddressSpace();
+      Type *I8Ptr = Type::getInt8PtrTy(BB->getContext(), PtrAS);
+      CastInst *Cast =
+        CastInst::CreatePointerCast(val, I8Ptr, "", BB->getFirstNonPHI());
+
+      // Insert prefetch
+      IRBuilder<> Builder(BB, ++BB->begin());
+      //the cast is prefetched first, then the prefetch
+      Module *M = BB->getParent()->getParent();
+      Type *I32 = Type::getInt32Ty(BB->getContext());
+      Value *PrefFun = Intrinsic::getDeclaration(M, Intrinsic::prefetch);
+      CallInst *Prefetch = Builder.CreateCall(
+          PrefFun, {Cast, ConstantInt::get(I32, 0),                       // read
+                    ConstantInt::get(I32, 3), ConstantInt::get(I32, 1)}); // data
+        //prefetch here
+    }
+  }
+
   bool isUnderThreshold(set<Instruction *> Deps) {
     unsigned thresh = IndirThresh;
     unsigned count = 0;
@@ -921,7 +963,7 @@ protected:
 
 
     // BFS overs the function calls to detect the TM_BEGIN section
-    while(bTS.size() == 0 && vF.size() != 0) {
+    while(vF.size() != 0) {
       set<Function *> nvF;
       for(Function * F: vF) {
         vector< CallInst *> vI;
@@ -939,7 +981,8 @@ protected:
           BFStoloadToVal[I->getParent()->getParent()]=BFStoloadToVal[F];
           //have different loadToVar for each part of the BFS
           updateLoadToVal(I, F, toHoist, BFStoloadToVal[I->getParent()->getParent()]);
-          getBeginTransactionalSection(toHoist, I, bTS, vBlockWithoutBTS, funArgs, BFStoloadToVal[I->getParent()->getParent()]);
+          getBeginTransactionalSection(toHoist, I, bTS, vBlockWithoutBTS, 
+                   funArgs, BFStoloadToVal[I->getParent()->getParent()]);
         }
 
         for(BasicBlock * BB: vBlockWithoutBTS)

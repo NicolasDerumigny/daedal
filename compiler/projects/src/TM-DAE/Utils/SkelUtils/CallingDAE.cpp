@@ -58,10 +58,18 @@ bool isBeginTM(BasicBlock* BB);
 bool isEndTMOrLock(BasicBlock* BB);
 bool checkCalls(Instruction *I);
 void mapArgumentsToParams(Function *F, ValueToValueMapTy *VMap);
-void getBeginTransactionalSection(list<LoadInst * > & toHoist, CallInst * I, set<BasicBlock *> & bTS, vector<BasicBlock *> & vBlockWithoutBTS, map<BasicBlock *, vector<Value *>> & funArgs, map<LoadInst *, Value*> & loadToVal);
+void getBeginTransactionalSection(list<LoadInst * > & toHoist, CallInst * I, 
+  set<BasicBlock *> & bTS, vector<BasicBlock *> & vBlockWithoutBTS, 
+  map<BasicBlock *, vector<Value *>> & funArgs, map<LoadInst *, Value*> & loadToVal);
 void getCallers(Module * M, Function * F, vector<CallInst * > & vF);
 void constructArgVector(list <LoadInst *> toHoist, BasicBlock * BB, 
   map<LoadInst *, Value*> & loadToVal, map<BasicBlock *, vector<Value *>> &funArgs);
+void addDeclaredValues(BasicBlock * aBB, map<Value *, bool> & declaredVal);
+void getFunArg(BasicBlock * BB, set<Value * > & funArg);
+bool existLoad(Value * Val, BasicBlock * BB);
+bool isPointer(int i, Function * fun, queue<BasicBlock *> & Q);
+bool getFunctionArg(BasicBlock * BB, set<Value * > & funArg, 
+  map<Value *, bool> declaredVal);
 
 
 
@@ -401,7 +409,8 @@ void insertCallOrigToPAPI(CallInst *execute) {
 }
 
 
-void getBeginTransactionalSection(list<LoadInst * > & toHoist, CallInst * I, set<BasicBlock *> & bTS, vector<BasicBlock *> & vBlockWithoutBTS, 
+void getBeginTransactionalSection(list<LoadInst * > & toHoist, CallInst * I, 
+  set<BasicBlock *> & bTS, vector<BasicBlock *> & vBlockWithoutBTS, 
   map<BasicBlock *, vector<Value *>> & funArgs, map<LoadInst *, Value*> & loadToVal) {
   BasicBlock * BB = I -> getParent();
 
@@ -466,8 +475,11 @@ bool isEndTMOrLock(BasicBlock* BB) {
         cast<InlineAsm>(cast<CallInst>(I)->getCalledValue())->getAsmString() == TM_END_ASM)
          return true;
     } else {
-      if(isa<CallInst>(I) && cast<CallInst> (I) -> getCalledFunction() -> hasName() && cast<CallInst> (I) -> getCalledFunction() -> getName() == "pthread_mutex_lock") {
+      if(isa<CallInst>(I) && cast<CallInst> (I) -> getCalledFunction() -> hasName() && cast<CallInst> (I) -> getCalledFunction() -> getName() == "pthread_mutex_unlock") {
         return true;
+      }
+      if(isa<CallInst>(I) && cast<CallInst> (I) -> getCalledFunction() -> hasName() && cast<CallInst> (I) -> getCalledFunction() -> getName() == "pthread_mutex_lock") {
+      return true;
       }
     }
     
@@ -475,6 +487,127 @@ bool isEndTMOrLock(BasicBlock* BB) {
   return false;
 }
 
+//Add all declared value to the declaredVal map
+void addDeclaredValues(BasicBlock * aBB, map<Value *, bool> & declaredVal) {
+  for (BasicBlock::iterator I = aBB->begin(), E = aBB->end(); I != E; ++I) 
+    declaredVal[&(*I)] = true;
+}
+
+// simple BFS over the basic block to find all the avalaible 
+// instructions to prefetch
+void getFunArg(BasicBlock *  BB,  set<Value *> & funArg) {
+  vector<BasicBlock *> toVisit;
+  map<BasicBlock *, bool> visited;
+  map<Value *, bool> declaredVal;
+  visited[BB] = true;
+  toVisit.push_back(BB);
+  addDeclaredValues(BB, declaredVal);
+
+  while(toVisit.size() != 0) {
+    vector<BasicBlock *> ntoVisit;
+
+    for(BasicBlock * aBB : toVisit) {
+      for (succ_iterator SI = succ_begin(aBB), E = succ_end(aBB); SI != E; ++SI) {
+        if (visited.find(*SI) == visited.end() && !isEndTMOrLock(*SI)) {
+          addDeclaredValues(*SI, declaredVal);
+          getFunctionArg(*SI, funArg, declaredVal);
+          ntoVisit.push_back(*SI);
+        }
+      }
+      visited[aBB] = true;
+    }
+
+
+    toVisit.clear();
+    for(BasicBlock * next: ntoVisit)
+      toVisit.push_back(next);
+  }
+}
+
+// Return true if there exist a load or a getelementptr that uses
+// the value Val in the BasicBlock BB. Also enqueue function that are
+// called
+bool existLoad(Value * Val, BasicBlock * BB, queue<BasicBlock *> & Q) {
+  for (BasicBlock::iterator I = BB->begin(), E = BB->end(); I != E; ++I) {
+    if (isa<CallInst> (*I)) {
+      Function * F = cast <CallInst> (*I).getCalledFunction();
+      if (F->isDeclaration()) {
+        Q.push(&(F->getEntryBlock()));
+      }
+    }
+    if (isa<GetElementPtrInst> (*I)) {
+      if (cast<GetElementPtrInst> (*I).getPointerOperand() == Val) {
+        return true;
+      }
+    }
+    if (isa<LoadInst> (*I) && cast<LoadInst> (*I).getPointerOperand() == Val) {
+      return true;
+    }
+    
+  }
+  return false;
+}
+
+
+// Return true if there is a load instruction that uses the i-th
+// argument, computed by a BFS on the function
+bool isPointer(int i, Function * F) {
+  int target = 0;
+  Value * ValToCheck;
+  for (ilist_iterator<Argument> b = F->getArgumentList().begin(),
+                        e = F->getArgumentList().end();b != e; ++b) {
+    if (target == i) {
+      ValToCheck = &(*b);
+      break;
+    }
+    ++target;
+  }
+
+  map<BasicBlock *, bool> visited;
+  queue<BasicBlock *> Q;
+  Q.push(&F->getEntryBlock());
+  while (!Q.empty()) {
+    BasicBlock * current = Q.front();
+    Q.pop();
+
+
+    for (succ_iterator SI = succ_begin(current), E = succ_end(current);
+         SI != E; ++SI) {
+      if (visited.find(*SI)==visited.end()) {
+        if (existLoad(ValToCheck, *SI, Q))
+          return true;
+        Q.push(*SI);
+        visited[*SI]=true;
+      }
+    }
+    
+  }
+
+  return false;
+}
+
+
+// Put the values that are used by the first function call in
+// funArg
+bool getFunctionArg(BasicBlock * BB, set<Value * > & funArg, 
+  map<Value *, bool> declaredVal) {
+  bool found = false;
+  for (BasicBlock::iterator I = BB->begin(), E = BB->end(); I != E; ++I) {
+    if(isa<CallInst> (I)){
+      CallInst * cI = cast<CallInst> (I);
+      int i = 0;
+      for (CallInst::op_iterator b = cI->arg_begin(),
+                      e = cI->arg_end();b != e; ++b){
+        if (declaredVal.find(*b)==declaredVal.end() && isPointer(i, cI->getCalledFunction())) {
+            funArg.insert(*b);
+        }
+        ++i;
+       }
+       found = true;
+    }
+  }
+  return found;
+}
 
 void getCallers(Module * M, Function * F, vector<CallInst * > & vF){
   //Gather in vF the functions inside which there is a call

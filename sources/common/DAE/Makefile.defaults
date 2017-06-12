@@ -15,6 +15,7 @@ LINK=$(LLVM_BIN)/llvm-link
 OPT=$(LLVM_BIN)/opt
 CLANG=$(LLVM_BIN)/clang 
 CLANGCPP=$(LLVM_BIN)/clang++
+CFLAGS += -Wno-override-module
 
 DVFS_FLAGS=$(COMPILER_LIB)/libDAE_prof_ST.a -lcpufreq
 
@@ -78,7 +79,7 @@ $(BINDIR)/$(BENCHMARK).%.$(TM_SUFFIX).O3.ll: $(BINDIR)/$(BENCHMARK).tm-gran$(get
 	$(OPT) -S -load $(COMPILER_LIB)/libTMFKernelPrefetch.so \
 	-tbaa -basicaa -tm-f-kernel-prefetch \
         -indir-thresh $($@_INDIR) -follow-partial \
-	-always-inline -O3 -load $(COMPILER_LIB)/libRemoveRedundantPref.so -rrp -o $@ $^
+	-always-inline -hoist-args -load $(COMPILER_LIB)/libRemoveRedundantPref.so -rrp -o $@ $^
 
 
 $(BINDIR)/$(BENCHMARK).%.$(TM_SUFFIX).ll: $(get_tm-dae_prerequisites) $(get_unmodified_files)
@@ -89,7 +90,7 @@ $(BINDIR)/$(BENCHMARK).%.$(TM_SUFFIX).ll: $(get_tm-dae_prerequisites) $(get_unmo
 	$(OPT) -S -load $(COMPILER_LIB)/libFKernelPrefetch.so \
 	-tbaa -basicaa -f-kernel-prefetch \
         -indir-thresh $($@_INDIR) -follow-partial \
-	-always-inline -O3 -load $(COMPILER_LIB)/libRemoveRedundantPref.so -rrp -o $@ $^
+	-always-inline -O3  -load $(COMPILER_LIB)/libRemoveRedundantPref.so -rrp -o $@ $^
 
 $(BINDIR)/DAE-header.ll: $(get_gran_files)
 ifdef <
@@ -103,6 +104,7 @@ endif
 	cat $^ |  sed 's/\(_granularity.* \)[0-9]\+/\1'"${$@_GRAN}"'/g' > $@
 
 $(BINDIR)/Globals.ll: $(get_gran_files)
+	touch Globals.ll
 	mv Globals.ll $(BINDIR)
 
 
