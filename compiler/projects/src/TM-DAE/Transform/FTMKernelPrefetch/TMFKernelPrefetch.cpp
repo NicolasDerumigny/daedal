@@ -123,7 +123,7 @@ public:
 
 
     if (Dump) {
-        errs()<<"DUMP:\n";
+        PRINTSTREAM<<"DUMP:\n";
         M.dump();
     }
     return change;
@@ -692,11 +692,21 @@ protected:
       if(HoistArgs) {
         // prefetch arguments of the called functions
         for(BasicBlock * BB : bTS){
-          set<Value *> lastFunArg;
-          getFunArg(BB, lastFunArg);
-          prefetchArgs(BB, lastFunArg);
-          printStart()<<"Prefetching function arguments: found "
-          << lastFunArg.size()<<" values\n";
+          map<Value*, pair<Value*, list<Instruction *>>> toKeepFun;
+          getFunArg(BB, toKeepFun);
+          int nbInst = refine(toKeepFun);
+          printStart()<<"Instructions for calls: "<< nbInst<<"\n";
+          /*for (auto& elmt: toKeepFun) {
+            if (elmt.second.first) {
+              elmt.first->print(errs());
+              errs()<<"\n";
+              for (auto& elmt2: elmt.second.second) {
+                elmt2->print(errs());
+                errs()<<"\n";
+              }
+            }
+          }*/
+          prefetchArgs(BB, toKeepFun);
         }
       }
     }
@@ -868,24 +878,37 @@ protected:
   }
 
   //insert prefetch before the TM_BEGIN
-  void prefetchArgs(BasicBlock* BB, set< Value * > args) {
-    for (Value * val : args) {
-      // Make sure type is correct
-      unsigned PtrAS = val->getType()->getPointerAddressSpace();
-      Type *I8Ptr = Type::getInt8PtrTy(BB->getContext(), PtrAS);
-      CastInst *Cast =
-        CastInst::CreatePointerCast(val, I8Ptr, "", BB->getFirstNonPHI());
+  void prefetchArgs(BasicBlock* BB, 
+    map<Value*, pair<Value*, list<Instruction *>>> & toKeepFun) {
+    for (auto & val : toKeepFun) {
+      Instruction * current;
+      while(!val.second.second.empty()) {
+        current = val.second.second.back();
+        val.second.second.pop_back();
+        if (isa<GetElementPtrInst>(current) || isa <CastInst>(current)) {
+          // Make sure type is correct
+          unsigned PtrAS = current->getType()->getPointerAddressSpace();
+          Type *I8Ptr = Type::getInt8PtrTy(BB->getContext(), PtrAS);
+          CastInst *Cast =
+            CastInst::CreatePointerCast(current, I8Ptr, "", BB->getFirstNonPHI());
 
-      // Insert prefetch
-      IRBuilder<> Builder(BB, ++BB->begin());
-      //the cast is prefetched first, then the prefetch
-      Module *M = BB->getParent()->getParent();
-      Type *I32 = Type::getInt32Ty(BB->getContext());
-      Value *PrefFun = Intrinsic::getDeclaration(M, Intrinsic::prefetch);
-      CallInst *Prefetch = Builder.CreateCall(
-          PrefFun, {Cast, ConstantInt::get(I32, 0),                       // read
-                    ConstantInt::get(I32, 3), ConstantInt::get(I32, 1)}); // data
-        //prefetch here
+          // Insert prefetch
+          IRBuilder<> Builder(BB, ++BB->begin());
+          //the cast is prefetched first, then the prefetch
+          Module *M = BB->getParent()->getParent();
+          Type *I32 = Type::getInt32Ty(BB->getContext());
+          Value *PrefFun = Intrinsic::getDeclaration(M, Intrinsic::prefetch);
+          CallInst *Prefetch = Builder.CreateCall(
+              PrefFun, {Cast, ConstantInt::get(I32, 0),                       // read
+                        ConstantInt::get(I32, 3), ConstantInt::get(I32, 1)}); // data
+            //prefetch here
+        } else {
+          PRINTSTREAM<< "Unsupported instruction to prefetch: ";
+          current->print(PRINTSTREAM);
+          PRINTSTREAM<<"\n";
+        }
+        current->insertBefore(BB->getFirstNonPHI());
+      }
     }
   }
 
@@ -953,11 +976,11 @@ protected:
     map<BasicBlock *, vector <Value *>> & funArgs) {
     Module * M = access->getParent();
     vector<Function *> vF;
-    map<Function *, bool> seen;
+    set<Function *> seen;
     map<LoadInst *, Value*> loadToVal;
     map<Function*, map<LoadInst *, Value*>> BFStoloadToVal;
     vF.push_back(access);
-    seen[access]=true;
+    seen.insert(access);
     BFStoloadToVal[access] = map<LoadInst *, Value*>();
     initLoadToVal(toHoist,  BFStoloadToVal[access]);
 
@@ -969,10 +992,10 @@ protected:
         vector< CallInst *> vI;
         getCallers(M, F, vI);
         // Detection of the TM_BEGIN: pushed either in new Vector Fun (nVF)
-        // if there is no TM_BEGIN, and continue the route, or in BTS
+        // if there is no TM_BEGIN, and continue the traversal; or in BTS
         if (vI.size() == 0){
           printStart()<<"WARNING: " <<
-          "A marked loop might be executed outside a TM section\n";
+          "A marked loop might be executed outside a TM section, or there is a recursive call.\n";
         }
 
 
@@ -992,7 +1015,7 @@ protected:
       for(Function * F: nvF)
         if (seen.find(F)==seen.end()){
           vF.push_back(F);
-          seen[F]=true;
+          seen.insert(F);
         }
     }
 

@@ -64,12 +64,15 @@ void getBeginTransactionalSection(list<LoadInst * > & toHoist, CallInst * I,
 void getCallers(Module * M, Function * F, vector<CallInst * > & vF);
 void constructArgVector(list <LoadInst *> toHoist, BasicBlock * BB, 
   map<LoadInst *, Value*> & loadToVal, map<BasicBlock *, vector<Value *>> &funArgs);
-void addDeclaredValues(BasicBlock * aBB, map<Value *, bool> & declaredVal);
-void getFunArg(BasicBlock * BB, set<Value * > & funArg);
-bool existLoad(Value * Val, BasicBlock * BB);
-bool isPointer(int i, Function * fun, queue<BasicBlock *> & Q);
-bool getFunctionArg(BasicBlock * BB, set<Value * > & funArg, 
-  map<Value *, bool> declaredVal);
+void addDeclaredValues(BasicBlock * aBB, set<Value *> & declaredVal,
+           map<Value*, pair<Value*, list<Instruction *>>> & toKeepFun);
+void getFunArg(BasicBlock * BB,
+  map<Value*, pair<Value*, list<Instruction *>>> & toKeepFun);
+void collectInstr(int i, Function * F, pair<Value*, list<Instruction *>> & toKeep);
+void collectToKeep(Value * Val, BasicBlock * BB, set<Instruction *> & toKeep);
+int refine(map<Value*, pair<Value*, list<Instruction *>>> & toKeepFun);
+bool getFunctionArg(BasicBlock * BB, set<Value *> declaredVal,
+ map<Value*, pair<Value*, list<Instruction *>>> & toKeepFun);
 
 
 
@@ -426,13 +429,13 @@ void getBeginTransactionalSection(list<LoadInst * > & toHoist, CallInst * I,
   //precede block BB. If an instruction interferes with one
   //of the loads to hoist, this load is suppressed.
   queue<BasicBlock*> queue;
-  map<BasicBlock*, bool> visited;
+  set<BasicBlock*> visited;
   queue.push(BB);
 
   while(!queue.empty()) {   
     BasicBlock * current;
     current = queue.front();
-    visited[current] = true;
+    visited.insert(current);
     queue.pop();
 
     for (pred_iterator PI = pred_begin(current), E = pred_end(current);
@@ -451,7 +454,7 @@ void getBeginTransactionalSection(list<LoadInst * > & toHoist, CallInst * I,
               else
                 queue.push(*PI);
           
-          visited[*PI] = true;
+          visited.insert(*PI);
       }
     }
   }
@@ -475,10 +478,14 @@ bool isEndTMOrLock(BasicBlock* BB) {
         cast<InlineAsm>(cast<CallInst>(I)->getCalledValue())->getAsmString() == TM_END_ASM)
          return true;
     } else {
-      if(isa<CallInst>(I) && cast<CallInst> (I) -> getCalledFunction() -> hasName() && cast<CallInst> (I) -> getCalledFunction() -> getName() == "pthread_mutex_unlock") {
+      if(isa<CallInst>(I) && cast<CallInst> (I) -> getCalledFunction() ->
+       hasName() && cast<CallInst> (I) -> getCalledFunction() 
+       -> getName() == "pthread_mutex_unlock") {
         return true;
       }
-      if(isa<CallInst>(I) && cast<CallInst> (I) -> getCalledFunction() -> hasName() && cast<CallInst> (I) -> getCalledFunction() -> getName() == "pthread_mutex_lock") {
+      if(isa<CallInst>(I) && cast<CallInst> (I) -> getCalledFunction() -> 
+        hasName() && cast<CallInst> (I) -> getCalledFunction() -> 
+        getName() == "pthread_mutex_lock") {
       return true;
       }
     }
@@ -488,20 +495,26 @@ bool isEndTMOrLock(BasicBlock* BB) {
 }
 
 //Add all declared value to the declaredVal map
-void addDeclaredValues(BasicBlock * aBB, map<Value *, bool> & declaredVal) {
-  for (BasicBlock::iterator I = aBB->begin(), E = aBB->end(); I != E; ++I) 
-    declaredVal[&(*I)] = true;
+void addDeclaredValues(BasicBlock * aBB, set<Value *> & declaredVal,
+           map<Value*, pair<Value*, list<Instruction *>>> & toKeepFun) {
+  for (BasicBlock::iterator I = aBB->begin(), E = aBB->end(); I != E; ++I) {
+    declaredVal.insert(&(*I));
+    toKeepFun[&(*I)] = pair<Value*, list<Instruction *>>();
+    toKeepFun[&(*I)].first = nullptr;
+  }
 }
 
 // simple BFS over the basic block to find all the avalaible 
 // instructions to prefetch
-void getFunArg(BasicBlock *  BB,  set<Value *> & funArg) {
+// toKeepFun: Value -> (Value in following instructions, inst to prefetch)
+void getFunArg(BasicBlock *  BB,
+         map<Value*, pair<Value*, list<Instruction *>>> & toKeepFun) {
   vector<BasicBlock *> toVisit;
-  map<BasicBlock *, bool> visited;
-  map<Value *, bool> declaredVal;
-  visited[BB] = true;
+  set<BasicBlock *> visited;
+  set<Value *> declaredVal;
+  visited.insert(BB);
   toVisit.push_back(BB);
-  addDeclaredValues(BB, declaredVal);
+  addDeclaredValues(BB, declaredVal, toKeepFun);
 
   while(toVisit.size() != 0) {
     vector<BasicBlock *> ntoVisit;
@@ -509,12 +522,13 @@ void getFunArg(BasicBlock *  BB,  set<Value *> & funArg) {
     for(BasicBlock * aBB : toVisit) {
       for (succ_iterator SI = succ_begin(aBB), E = succ_end(aBB); SI != E; ++SI) {
         if (visited.find(*SI) == visited.end() && !isEndTMOrLock(*SI)) {
-          addDeclaredValues(*SI, declaredVal);
-          getFunctionArg(*SI, funArg, declaredVal);
+          addDeclaredValues(*SI, declaredVal, toKeepFun);
+          getFunctionArg(*SI, declaredVal, toKeepFun);
+
           ntoVisit.push_back(*SI);
         }
       }
-      visited[aBB] = true;
+      visited.insert(aBB);
     }
 
 
@@ -527,70 +541,77 @@ void getFunArg(BasicBlock *  BB,  set<Value *> & funArg) {
 // Return true if there exist a load or a getelementptr that uses
 // the value Val in the BasicBlock BB. Also enqueue function that are
 // called
-bool existLoad(Value * Val, BasicBlock * BB, queue<BasicBlock *> & Q) {
+void collectToKeep(set <Value *> Val, BasicBlock * BB, 
+                                          list<Instruction *> & toKeep) {
   for (BasicBlock::iterator I = BB->begin(), E = BB->end(); I != E; ++I) {
-    if (isa<CallInst> (*I)) {
-      Function * F = cast <CallInst> (*I).getCalledFunction();
+
+    if (isa<CallInst> (I) && ! isa<InlineAsm> (cast<CallInst>(I)->getCalledValue())) {
+      Function * F = cast <CallInst> (I)->getCalledFunction();
       if (F->isDeclaration()) {
-        Q.push(&(F->getEntryBlock()));
+        //TODO: mark function (avoid cycle in CFG) and follow calls
       }
     }
-    if (isa<GetElementPtrInst> (*I)) {
-      if (cast<GetElementPtrInst> (*I).getPointerOperand() == Val) {
-        return true;
+    if (isa<GetElementPtrInst> (I)) {
+      if (Val.find(cast<GetElementPtrInst> (I)->getPointerOperand()) != Val.end()) {
+        Val.insert(cast<GetElementPtrInst> (I)->getPointerOperand());
+        toKeep.push_back(&(*I));
       }
     }
-    if (isa<LoadInst> (*I) && cast<LoadInst> (*I).getPointerOperand() == Val) {
-      return true;
+    if (isa<LoadInst> (I) && Val.find(cast<LoadInst> (I)->getPointerOperand()) != Val.end()) {
+        Val.insert(cast<LoadInst> (I)->getPointerOperand());
+        toKeep.push_back(&(*I));
     }
-    
+    if (isa<CastInst> (I) && Val.find(cast<User> (I)->getOperand(0))!=Val.end()){
+      Val.insert(cast<User> (I)->getOperand(0));
+      toKeep.push_back(&(*I));
+    }
+
   }
-  return false;
 }
 
 
 // Return true if there is a load instruction that uses the i-th
 // argument, computed by a BFS on the function
-bool isPointer(int i, Function * F) {
+void collectInstr(int i, Function * F, pair<Value*, list<Instruction *>> & toKeep) {
   int target = 0;
-  Value * ValToCheck;
+  set <Value *> ValToCheck;
   for (ilist_iterator<Argument> b = F->getArgumentList().begin(),
                         e = F->getArgumentList().end();b != e; ++b) {
     if (target == i) {
-      ValToCheck = &(*b);
+      ValToCheck.insert(&(*b));
+      toKeep.first=&(*b);
       break;
     }
     ++target;
   }
 
-  map<BasicBlock *, bool> visited;
+  set<BasicBlock *> visited;
   queue<BasicBlock *> Q;
+  visited.insert(&F->getEntryBlock());
   Q.push(&F->getEntryBlock());
+
   while (!Q.empty()) {
     BasicBlock * current = Q.front();
     Q.pop();
+
+    collectToKeep(ValToCheck, current, toKeep.second);
 
 
     for (succ_iterator SI = succ_begin(current), E = succ_end(current);
          SI != E; ++SI) {
       if (visited.find(*SI)==visited.end()) {
-        if (existLoad(ValToCheck, *SI, Q))
-          return true;
         Q.push(*SI);
-        visited[*SI]=true;
+        visited.insert(*SI);
       }
     }
-    
   }
-
-  return false;
 }
 
 
-// Put the values that are used by the first function call in
-// funArg
-bool getFunctionArg(BasicBlock * BB, set<Value * > & funArg, 
-  map<Value *, bool> declaredVal) {
+// Put the values that are used by function calls in
+// toKeepFun
+bool getFunctionArg(BasicBlock * BB, set<Value *> declaredVal, 
+  map<Value*, pair<Value*, list<Instruction *>>> & toKeepFun) {
   bool found = false;
   for (BasicBlock::iterator I = BB->begin(), E = BB->end(); I != E; ++I) {
     if(isa<CallInst> (I)){
@@ -598,8 +619,10 @@ bool getFunctionArg(BasicBlock * BB, set<Value * > & funArg,
       int i = 0;
       for (CallInst::op_iterator b = cI->arg_begin(),
                       e = cI->arg_end();b != e; ++b){
-        if (declaredVal.find(*b)==declaredVal.end() && isPointer(i, cI->getCalledFunction())) {
-            funArg.insert(*b);
+        if (declaredVal.find(*b)==declaredVal.end() && 
+          (*b)->getType()-> isPointerTy() 
+          && !cI->getCalledFunction()->isDeclaration()) {
+            collectInstr(i, cI->getCalledFunction(), toKeepFun[*b]);
         }
         ++i;
        }
@@ -673,6 +696,57 @@ bool checkCalls(Instruction *I) {
   }
 
   return hasNoModifyingCalls;
+}
+
+// remove the getelementptr instructions that does the same job twice,
+// clone all the instructions and replace the wrong value by its correct one
+int refine(map<Value*, pair<Value*, list<Instruction *>>> & toKeepFun) {
+  list<Value *> toDel;
+  int ret = 0;
+  for (auto& elmt: toKeepFun) {
+    if (elmt.second.first) {
+      //if there is something to prefetch
+      list<Instruction *> refined;
+      set <Value *> seenElmtPtr;
+      set <Type *> seenCast;
+      for (auto& elmt2: elmt.second.second) {
+
+        if (isa<GetElementPtrInst> (elmt2)) {
+          //TODO: clean this better: remove only exact doubles
+          GetElementPtrInst * Inst = cast<GetElementPtrInst> (elmt2);
+            
+          if(seenElmtPtr.find(Inst->getOperand(2)) == seenElmtPtr.end()) {
+            seenElmtPtr.insert(Inst->getOperand(2));
+            Instruction * Inst = elmt2->clone();
+            Inst->setOperand(0,elmt.first);
+            refined.push_back(Inst);
+            ++ret;
+          }
+        } else if (isa<CastInst> (elmt2)) {
+          CastInst * Inst = cast <CastInst> (elmt2);
+          if (seenCast.find(Inst->getDestTy()) == seenCast.end() && 
+              Inst->getOperand(0)==elmt.second.first) {
+            seenCast.insert(Inst->getDestTy());
+            Instruction * Inst = elmt2->clone();
+            Inst -> setOperand(0, elmt.first);
+            refined.push_back(Inst);
+            ++ret;
+          }
+        } else {
+          Instruction * Inst = elmt2->clone();
+          refined.push_back(Inst);
+          ++ret;
+        }
+      }
+      elmt.second.second = refined;
+    } else {
+      toDel.push_back(elmt.first);
+    }
+  }
+  for (Value * val: toDel) {
+    toKeepFun.erase(val);
+  }
+  return ret;
 }
 
 
