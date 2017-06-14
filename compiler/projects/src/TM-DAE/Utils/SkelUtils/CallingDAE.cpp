@@ -463,6 +463,12 @@ void getBeginTransactionalSection(list<LoadInst * > & toHoist, CallInst * I,
 
 bool isBeginTM(BasicBlock* BB) {
   for (BasicBlock::iterator I = BB->begin(), E = BB->end(); I != E; ++I){
+    if(isa<CallInst>(I) && cast<CallInst> (I) -> getCalledFunction() ->
+                  hasName() && cast<CallInst> (I) -> getCalledFunction() 
+                               -> getName() == "beginTransaction") {
+        return true;
+    }
+
     if(isa<CallInst>(I) && cast<CallInst>(I) -> isInlineAsm())
       if(isa<InlineAsm> (cast<CallInst>(I)->getCalledValue()) &&
         cast<InlineAsm>(cast<CallInst>(I)->getCalledValue())->getAsmString() == TM_BEGIN_ASM)
@@ -486,6 +492,11 @@ bool isEndTMOrLock(BasicBlock* BB) {
       if(isa<CallInst>(I) && cast<CallInst> (I) -> getCalledFunction() -> 
         hasName() && cast<CallInst> (I) -> getCalledFunction() -> 
         getName() == "pthread_mutex_lock") {
+      return true;
+      }
+      if(isa<CallInst>(I) && cast<CallInst> (I) -> getCalledFunction() -> 
+        hasName() && cast<CallInst> (I) -> getCalledFunction() -> 
+        getName() == "commitTransaction") {
       return true;
       }
     }

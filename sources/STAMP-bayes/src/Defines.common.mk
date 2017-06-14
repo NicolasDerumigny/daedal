@@ -24,10 +24,15 @@ SRCS_LIBS += \
 	$(LIB_DIR)/random.c \
 	$(LIB_DIR)/thread.c \
 	$(LIB_DIR)/vector.c \
+	$(LIB_DIR)/memory.c \
 #
 
 OBJS := ${SRCS:.c=.o}
 LIB_OBJS := ${SRCS_LIBS:.c=.o}
+LIB_OBJS += $(LIB_DIR)/abort_handlers.a \
+			$(LIB_DIR)/../gem5/m5op_x86.o \
+			$(LIB_DIR)/../gem5/m5ops_wrapper.o \
+#
 
 CFLAGS += -DLIST_NO_DUPLICATES
 CFLAGS += -DLEARNER_TRY_REMOVE

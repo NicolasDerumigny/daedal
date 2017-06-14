@@ -422,20 +422,20 @@ extern _tm_thread_context_t *thread_contexts;
   }while (0)
 
 #  define TM_EARLY_RELEASE(addr)			\
-  if (addr != 0) panic("Unsupported addr release ");	\
+  assert(addr == 0 && "Unsupported addr release ");	\
   do {						\
     releaseReadSet(addr);			\
   }while (0)
 
-#  define TM_BEGIN_TAGGED(tag)\
+#  define TM_BEGIN()\
   do{				   \
     int prio = 0xdead;		   \
-    beginTransaction(tag, prio, _tm_thread_context->inFastForward);  \
+    beginTransaction(0, prio, _tm_thread_context->inFastForward);  \
   }while (0)
 
-#  define TM_END(tag)							\
+#  define TM_END()							\
   do{									\
-    commitTransaction((u_int64_t)tag, _tm_thread_context->inFastForward); \
+    commitTransaction((u_int64_t)0, _tm_thread_context->inFastForward); \
   }while (0)
 
 #  define TM_RESTART()				\

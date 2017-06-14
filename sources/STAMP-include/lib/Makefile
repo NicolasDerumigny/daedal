@@ -11,7 +11,9 @@
 
 CC      := clang
 GCC     := gcc
-CFLAGS  := -Wall -DOLD_RTM_MACROSES -DX86make
+AR      := ar
+CFLAGS  := -Wall -DOLD_RTM_MACROSES -DX86make -pthread
+AR_FLAGS  := rvs
 
 SRCS := \
 	avltree.c \
@@ -25,17 +27,20 @@ SRCS := \
 	pair.c \
 	queue.c \
 	random.c \
-        rbtree.c \
+    rbtree.c \
 	thread.c \
 	vector.c \
 	../gem5/m5op_x86.S\
-	../gem5/m5ops_wrapper.c
+	../gem5/m5ops_wrapper.c\
+	../handlers/abort_handlers.c\
+	../handlers/mt19937ar_1.c\
+	../handlers/spinlock.c
 #
 OBJS := ${SRCS:.c=.o}
 
 SRCS += ../handlers/abort_handlers.c
 
-OBJS += ../handlers/abort_handlers.a
+OBJS += abort_handlers.a
 OBJS += ../gem5/m5op_x86.o
 
 PROG_TEST := \
@@ -46,7 +51,7 @@ PROG_TEST := \
 	test_pair \
 	test_queue \
 	test_random \
-        test_rbtree \
+    test_rbtree \
 	test_thread \
 	test_vector \
 #
@@ -66,8 +71,8 @@ all: $(OBJS)
 %.o: %.c
 	$(CC) -o $@ -c $< $(CFLAGS)
 
-%.a: %.c
-	$(CC) -static -o $@ -c $< $(CFLAGS)
+abort_handlers.a: ../handlers/abort_handlers.o ../handlers/mt19937ar_1.o ../handlers/spinlock.o
+	${AR} ${AR_FLAGS} $@ $^
 
 
 .PHONY: clean
