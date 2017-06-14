@@ -109,12 +109,13 @@ public:
 
   virtual bool runOnModule(Module &M) {
     bool change = false;
+    set <BasicBlock *> Treated;
     for (Module::iterator fI = M.begin(), fE = M.end(); fI != fE; ++fI) {
       if (isFKernel(*fI)) {
         PRINTSTREAM << "\n";
         printStart().write_escaped(fI->getName()) << ":\n";
 
-        change |= swoopify(*fI);
+        change |= swoopify(*fI, Treated);
       } /*else if (isMain(*fI)) {
         insertCallInitPAPI(&*fI);
         change = true;
@@ -615,7 +616,7 @@ protected:
     }
   }
 
-  bool swoopify(Function & F){
+  bool swoopify(Function & F, set <BasicBlock *> & Treated){
     LI = &getAnalysis<LoopInfoWrapperPass>(F).getLoopInfo();
 
     // We need to manually construct BasicAA directly in order to disable
@@ -638,11 +639,12 @@ protected:
       return false;
     }
 
-    bool succeeded = swoopifyCore(F, toHoist);
+    bool succeeded = swoopifyCore(F, toHoist, Treated);
     return succeeded;
   }
 
-  bool swoopifyCore(Function &F, list<LoadInst*> toHoist, bool forceNotTM = false) {
+  bool swoopifyCore(Function &F, list<LoadInst*> toHoist, 
+    set <BasicBlock *> & Treated, bool forceNotTM = false) {
     Function *access = &F; 
     // the original, in which the prefetch will be put
     Function *execute = cloneFunction(access);
@@ -692,21 +694,29 @@ protected:
       if(HoistArgs) {
         // prefetch arguments of the called functions
         for(BasicBlock * BB : bTS){
-          map<Value*, pair<Value*, list<Instruction *>>> toKeepFun;
-          getFunArg(BB, toKeepFun);
-          int nbInst = refine(toKeepFun);
-          printStart()<<"Instructions for calls: "<< nbInst<<"\n";
-          /*for (auto& elmt: toKeepFun) {
-            if (elmt.second.first) {
-              elmt.first->print(errs());
-              errs()<<"\n";
-              for (auto& elmt2: elmt.second.second) {
-                elmt2->print(errs());
+            if (Treated.find(BB) == Treated.end()) {
+            map<Value*, pair< set<Value*>, list<Instruction *>>> toKeepFun;
+            getFunArg(BB, toKeepFun);
+            int nbInst = refine(toKeepFun);
+            printStart()<<"Instructions for calls: "<< nbInst<<"\n";
+            /*for (auto& elmt: toKeepFun) {
+              if (elmt.second.first) {
+                elmt.first->print(errs());
                 errs()<<"\n";
+                for (auto& elmt2: elmt.second.second) {
+                  elmt2->print(errs());
+                  errs()<<"\n";
+                }
               }
-            }
-          }*/
-          prefetchArgs(BB, toKeepFun);
+            }*/
+            prefetchArgs(BB, toKeepFun);
+            Treated.insert(BB);
+          } else {
+            printStart()<<"Begin section already treated to prefetch the arguments\n";
+            break;
+            // if we have already prefetched one TM_BEGIN,
+            // then all the section has been prefetched
+          }
         }
       }
     }
@@ -739,7 +749,7 @@ protected:
         return false;
       } else {
         printStart() << "No prefetches can be hoist outside TM Section, falling back to original mode\n";
-        return swoopifyCore(F, backup, true);
+        return swoopifyCore(F, backup, Treated, true);
       }
     }
   }
@@ -879,7 +889,7 @@ protected:
 
   //insert prefetch before the TM_BEGIN
   void prefetchArgs(BasicBlock* BB, 
-    map<Value*, pair<Value*, list<Instruction *>>> & toKeepFun) {
+    map<Value*, pair< set<Value*>, list<Instruction *>>> & toKeepFun) {
     for (auto & val : toKeepFun) {
       Instruction * current;
       while(!val.second.second.empty()) {

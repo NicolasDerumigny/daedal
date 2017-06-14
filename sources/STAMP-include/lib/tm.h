@@ -422,7 +422,7 @@ extern _tm_thread_context_t *thread_contexts;
   }while (0)
 
 #  define TM_EARLY_RELEASE(addr)			\
-  assert(addr == 0 && "Unsupported addr release ");	\
+  assert(addr != 0 && "Unsupported addr release ");	\
   do {						\
     releaseReadSet(addr);			\
   }while (0)
