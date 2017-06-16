@@ -79,7 +79,8 @@ $(BINDIR)/$(BENCHMARK).%.$(TM_SUFFIX).O3.ll: $(BINDIR)/$(BENCHMARK).tm-gran$(get
 	$(OPT) -S -load $(COMPILER_LIB)/libTMFKernelPrefetch.so \
 	-tbaa -basicaa -tm-f-kernel-prefetch \
         -indir-thresh $($@_INDIR) -follow-partial \
-	-always-inline -hoist-args -load $(COMPILER_LIB)/libRemoveRedundantPref.so -rrp -o $@ $^
+	-always-inline -load $(COMPILER_LIB)/libRemoveRedundantPref.so -rrp \
+	-load $(COMPILER_LIB)/libTMArgsPrefetcher.so -tm-prefetch-args -o $@ $^
 
 
 $(BINDIR)/$(BENCHMARK).%.$(TM_SUFFIX).ll: $(get_tm-dae_prerequisites) $(get_unmodified_files)

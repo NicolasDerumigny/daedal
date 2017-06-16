@@ -11,6 +11,7 @@ GRAN_COUNT=2
 ORIGINAL_SUFFIX=original
 CAE_SUFFIX=cae
 DAE_TYPE=dae
+ARGS_SUFFIX=pref-arg
 TM_SUFFIX=tm-dae
 
 # Targets
