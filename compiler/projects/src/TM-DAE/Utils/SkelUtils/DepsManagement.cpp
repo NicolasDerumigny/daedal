@@ -118,7 +118,12 @@ bool followDeps(set<Instruction *> &Set, set<Instruction *> &DepSet, AliasAnalys
 }
 
 // Convinience call
-bool followDeps(Instruction *Inst, set<Instruction *> &DepSet, AliasAnalysis * AA, bool FollowMust, bool FollowPartial, bool FollowMay) {
+bool followDeps(Instruction *Inst, 
+				set<Instruction *> &DepSet, 
+				AliasAnalysis * AA, 
+				bool FollowMust, 
+				bool FollowPartial, 
+				bool FollowMay) {
 	set<Instruction *> Set;
 	Set.insert(Inst);
 	return followDeps(Set, DepSet, AA, FollowMust, FollowPartial, FollowMay);
@@ -128,8 +133,8 @@ bool followDeps(Instruction *Inst, set<Instruction *> &DepSet, AliasAnalysis * A
 void enqueueOperands(Instruction *Inst, set<Instruction *> &Set,
 										 queue<Instruction *> &Q) {
 	for (User::value_op_iterator I = Inst->value_op_begin(),
-															 E = Inst->value_op_end();
-			 I != E; ++I) {
+								   E = Inst->value_op_end();
+											    I != E; ++I) {
 		enqueueInst(*I, Set, Q);
 	}
 }

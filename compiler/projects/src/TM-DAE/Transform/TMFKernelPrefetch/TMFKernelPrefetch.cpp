@@ -57,8 +57,8 @@ using namespace util;
 
 // Used as the limit of indirections allowed.
 static cl::opt<unsigned> IndirThresh("indir-thresh",
-																		 cl::desc("Max number of indirections"),
-																		 cl::value_desc("unsigned"));
+		cl::desc("Max number of indirections"),
+		cl::value_desc("unsigned"));
 
 static cl::opt<bool> HoistAliasingStores(
 		"hoist-aliasing-stores",
@@ -227,18 +227,19 @@ protected:
 	}
 
 	void filterLoadsOnInterferingDeps(list<LoadInst *> &Loads,
-																						list<LoadInst *> &Hoistable, Function &F) {
-			// Hoistable, if CFG to this block doesn't require global stores / calls
-			for (auto L = Loads.begin(), LE = Loads.end(); L != LE; ++L) {
-				// this loads immediate deps
-				set<Instruction *> Deps;
+					 				  list<LoadInst *> &Hoistable,
+					 				  Function &F) {
+		// Hoistable, if CFG to this block doesn't require global stores / calls
+		for (auto L = Loads.begin(), LE = Loads.end(); L != LE; ++L) {
+			// this loads immediate deps
+			set<Instruction *> Deps;
 
-				// this loads populated deps in followDeps
-				set<Instruction *> DepSet;
-				getRequirementsInIteration(*L, Deps);
-				if (followDeps(Deps, DepSet, AA, FollowMust, FollowPartial, FollowMay)) {
-					Hoistable.push_back(*L);
-				}
+			// this loads populated deps in followDeps
+			set<Instruction *> DepSet;
+			getRequirementsInIteration(*L, Deps);
+			if (followDeps(Deps, DepSet, AA, FollowMust, FollowPartial, FollowMay)) {
+				Hoistable.push_back(*L);
+			}
 		}
 	}
 
