@@ -2,7 +2,8 @@
  *
  * tm.h
  *
- * Utility defines for transactional memory
+ * Utility defines for transactional memory.
+ * Modified to support Intel Restricted Transactional Memory from TSX ISA.
  *
  * =============================================================================
  *
@@ -73,21 +74,6 @@
 
 #ifndef TM_H
 #define TM_H 1
-
-
-#ifndef CPU_PREFETCH
-#define CPU_PREFETCH(cache_line) \
-{ \
-__asm__ __volatile__ ("prefetcht0 %0" : : "m" (*(int *)cache_line)); \
-}
-#endif /* CPU_PREFETCH */
-
-
-#define CACHE_LINE_SIZE_BYTES 64
-
-#include <pthread.h>
-#include "../gem5/m5op.h"
-#include "../gem5/m5ops_wrapper.h"
 
 #ifdef HAVE_CONFIG_H
 # include "STAMP_config.h"
@@ -169,7 +155,6 @@ __asm__ __volatile__ ("prefetcht0 %0" : : "m" (*(int *)cache_line)); \
 #else /* !SIMULATOR */
 
 #  include <stdio.h>
-#  include "memory.h"
 
 #  define MAIN(argc, argv)              int main (int argc, char** argv)
 #  define MAIN_RETURN(val)              return val
@@ -186,17 +171,8 @@ __asm__ __volatile__ ("prefetcht0 %0" : : "m" (*(int *)cache_line)); \
 #  define TM_PRINT2                     printf
 #  define TM_PRINT3                     printf
 
-#define P_MEMORY_STARTUP(numThread)     do { \
-                                            bool_t status; \
-                                            status = memory_init((numThread), \
-                                                                 ((1<<28) / numThread), \
-                                                                 2); \
-                                            assert(status); \
-                                        } while (0) /* enforce comma */
-#  define P_MEMORY_SHUTDOWN()           memory_destroy()
-
-//#  define P_MEMORY_STARTUP(numThread)   /* nothing */
-//#  define P_MEMORY_SHUTDOWN()           /* nothing */
+#  define P_MEMORY_STARTUP(numThread)   /* nothing */
+#  define P_MEMORY_SHUTDOWN()           /* nothing */
 
 #endif /* !SIMULATOR */
 
@@ -240,7 +216,7 @@ __asm__ __volatile__ ("prefetcht0 %0" : : "m" (*(int *)cache_line)); \
  * TM_BEGIN_RO()
  *     Begin atomic block / transaction that only reads shared data
  *
- * TM_END(xid)
+ * TM_END()
  *     End atomic block / transaction
  *
  * TM_RESTART()
@@ -272,7 +248,7 @@ __asm__ __volatile__ ("prefetcht0 %0" : : "m" (*(int *)cache_line)); \
  *     {
  *         TM_BEGIN_RO()
  *         // ... do work that only reads shared data ...
- *         TM_END(xid)
+ *         TM_END()
  *
  *         long* array = (long*)P_MALLOC(10 * sizeof(long));
  *         // ... do work ...
@@ -285,7 +261,7 @@ __asm__ __volatile__ ("prefetcht0 %0" : : "m" (*(int *)cache_line)); \
  *         long* array = (long*)TM_MALLOC(a * b * c * sizeof(long));
  *         // ... do work that may read or write shared data ...
  *         TM_FREE(array);
- *         TM_END(xid);
+ *         TM_END();
  *     }
  *
  * =============================================================================
@@ -297,23 +273,19 @@ __asm__ __volatile__ ("prefetcht0 %0" : : "m" (*(int *)cache_line)); \
  * =============================================================================
  */
 
-// To synchronize applications, multi-programed workloads
-#  define TM_SYNC_APPS(appname, mode) \
-     thread_sync_apps(appname, mode)
-
-
-
-#ifdef HTM_DEFAULT
+#ifdef HTM
 
 #  ifndef SIMULATOR
-#    error HTM requries SIMULATOR
+//#    error HTM requries SIMULATOR
 #  endif
 
 #  include <assert.h>
-#  include <tmapi.h>
+//#  include <tmapi.h>
 #  include "memory.h"
 #  include "thread.h"
 #  include "types.h"
+
+#  include "rtm.h"
 
 #  define TM_ARG                        /* nothing */
 #  define TM_ARG_ALONE                  /* nothing */
@@ -321,16 +293,18 @@ __asm__ __volatile__ ("prefetcht0 %0" : : "m" (*(int *)cache_line)); \
 #  define TM_ARGDECL_ALONE              /* nothing */
 #  define TM_CALLABLE                   /* nothing */
 
-#  define TM_STARTUP(numThread)         /* nothing */
+#  define TM_STARTUP(numThread)         CPUID_RTM_CHECK; THREAD_MUTEX_INIT(global_rtm_mutex);
 #  define TM_SHUTDOWN()                 /* nothing */
 
 #  define TM_THREAD_ENTER()             /* nothing */
 #  define TM_THREAD_EXIT()              /* nothing */
+#  define TM_BEGIN_WAIVER()
+#  define TM_END_WAIVER()
 
-#  define P_MALLOC(size)                memory_get(thread_getId(), size)
-#  define P_FREE(ptr)                   /* TODO: thread local free is non-trivial */
-#  define TM_MALLOC(size)               memory_get(thread_getId(), size)
-#  define TM_FREE(ptr)                  /* TODO: thread local free is non-trivial */
+#  define P_MALLOC(size)                malloc(size)  //memory_get(thread_getId(), size)
+#  define P_FREE(ptr)                   free(ptr)    /* TODO: thread local free is non-trivial */
+#  define TM_MALLOC(size)               malloc(size)  //memory_get(thread_getId(), size)
+#  define TM_FREE(ptr)                  free(ptr)    /* TODO: thread local free is non-trivial */
 
 #  ifdef OTM
 
@@ -341,125 +315,76 @@ __asm__ __volatile__ ("prefetcht0 %0" : : "m" (*(int *)cache_line)); \
 #    define thread_barrier_wait();      _Pragma ("omp barrier")
 #    define TM_BEGIN()                  _Pragma ("omp transaction") {
 #    define TM_BEGIN_RO()               _Pragma ("omp transaction") {
-#    define TM_END(xid)                    }
+#    define TM_END()                    }
 #    define TM_RESTART()                _TM_Abort()
 
 #    define TM_EARLY_RELEASE(var)       TM_Release(&(var))
 
 #  else /* !OTM */
 
-#    define TM_BEGIN()                    TM_BeginClosed()
-#    define TM_BEGIN_RO()                 TM_BeginClosed()
-#    define TM_END(xid)                      TM_EndClosed()
-#    define TM_RESTART()                  _TM_Abort()
-#    define TM_EARLY_RELEASE(var)         TM_Release(&(var))
+#    ifdef OLD_RTM_MACROSES
+
+#       define TM_BEGIN()                   {                      \
+                                              __label__ failure;   \
+                                              int tries = 4;       \
+                                              failure:             \
+                                              tries --;            \
+                                              if (tries <= 0){     \
+                                                  pthread_mutex_lock(&global_rtm_mutex); \
+                                              }else{               \
+                                                  unsigned status = _xbegin(); \
+                                                  if (status != XBEGIN_STARTED)\
+                                                      goto failure;\
+                                              }
+                                                       
+                                              
+
+#       define TM_END()                       if (tries > 0)       \
+                                                _xend();           \
+                                              else                 \
+                                                pthread_mutex_unlock(&global_rtm_mutex); \
+                                            };
+
+#    else //OLD_RTM_MACROSES
+#       define TM_BEGIN()                    { __label__ failure;  \
+                                              int tries = 4;       \
+                                              XFAIL(failure);      \
+                                              tries --;            \
+                                              if (tries <= 0)      \
+                                                  pthread_mutex_lock(&global_rtm_mutex); \
+                                              else XBEGIN(failure);
+                                              
+
+#       define TM_END()                      if (tries > 0)        \
+                                                XEND();            \
+                                             else                  \
+                                                pthread_mutex_unlock(&global_rtm_mutex); \
+                                            };
+#   endif //OLD_RTM_MACROSES
+
+
+
+#    define TM_BEGIN_RO()                 TM_BEGIN()
+#    define TM_RESTART()                  XABORT(0xab);
+#    define TM_EARLY_RELEASE(var)         
+
+#  define TM_SHARED_READ(var)         (var)
+#  define TM_SHARED_WRITE(var, val)   ({var = val; var;})
+#  define TM_LOCAL_WRITE(var, val)    ({var = val; var;})
+
 
 #  endif /* !OTM */
 
-#elif defined(HTM)
 
-#include <stdlib.h>
-
-#include "../handlers/abort_handlers.h"
-#include "memory.h"
-#include "../handlers/spinlock.h"
-#include "thread.h"
-#include "types.h"
-#include "../xaction/xaction_insts_x86.h"
-
-extern _tm_thread_context_t *thread_contexts;
-
-#  define TM_ARGDECL           /* none */
-#  define TM_ARGDECL_ALONE     /* none */
-#  define TM_ARGDECL_END       /* none */
-#  define TM_ARG               /* none */
-#  define TM_ARG_ALONE         /* none */
-#  define TM_ARG_END           /* none */
-#  define TM_NO_ARG            /* none */
-#  define TM_NO_ARG_ALONE      /* none */
-#  define TM_NO_ARG_END        /* none */
-#  define TM_CONSTRUCTOR_ARG   /* none */
-#  define TM_THREAD_ARGDECL    /* none */
-#  define TM_MEMBERDECL        /* none */
-#  define TM_MEMBER_INIT()     /* nothing */
-#  define TM_MEMBER_DISABLE()  /* nothing */
-#  define TM_CALLABLE                   /* nothing */
-#  define TM_PREFETCH /*nothing*/
-
-#  define TM_STARTUP(numThreads)  \
-  do {						\
-    SimStartup(numThreads);		\
-    spinlock_init();				\
-  }while (0)
-
-#  define TM_SHUTDOWN()				\
-  do {						\
-    long count = getWorkItemCount();		\
-    printf("Work item count: %li\n", count);	\
-    fflush(NULL);				\
-  } while (0)
-
-
-#  define TM_THREAD_ENTER()						\
-  _tm_thread_context_t *_tm_thread_context = &thread_contexts[thread_getId()]; \
-  do {									\
-    SimRoiStart(thread_getId());					\
-  }while (0)
-
-#  define TM_THREAD_EXIT()			\
-  do {						\
-    SimRoiEnd(thread_getId(), _tm_thread_context->inFastForward);	\
-  }while (0)
-
-#  define TM_WORK_BEGIN()			\
-  do {						\
-    _tm_thread_context->inFastForward = workBegin(0, 0);	\
-  }while (0)
-
-#  define TM_WORK_END()						\
-  do {								\
-    workEnd(0, 0);						\
-  }while (0)
-
-#  define TM_EARLY_RELEASE(addr)			\
-  assert(addr != 0 && "Unsupported addr release ");	\
-  do {						\
-    releaseReadSet(addr);			\
-  }while (0)
-
-#  define TM_BEGIN()\
-  do{				   \
-    int prio = 0xdead;		   \
-    beginTransaction(0, prio, _tm_thread_context->inFastForward);  \
-  }while (0)
-
-#  define TM_END()							\
-  do{									\
-    commitTransaction((u_int64_t)0, _tm_thread_context->inFastForward); \
-  }while (0)
-
-#  define TM_RESTART()				\
-  do{						\
-    abortTransaction();				\
-  }while (0)
-
-
-#  define TM_GET_THREAD_ID()                thread_getId()
-#  define TM_MALLOC(size)            memory_get(thread_getId(), size)
-#  define TM_FREE(ptr)               /* TODO: thread local free is non-trivial */
-#  define P_MALLOC(size)             memory_get(thread_getId(), size)
-#  define P_FREE(ptr)                /* TODO: thread local free is non-trivial */
-
-
-/* =============================================================================
- * STM - Software Transactional Memory
- * =============================================================================
- */
+  /* =============================================================================
+   * STM - Software Transactional Memory
+   * =============================================================================
+   */
 
 #elif defined(STM)
 
 #  include <string.h>
-#  include <stm.h>
+#  include <api/api.hpp>
 #  include "thread.h"
 
 #  if defined (OTM)
@@ -476,7 +401,8 @@ extern _tm_thread_context_t *thread_contexts;
 #    define thread_shutdown()             /* nothing */
 
 #  else /* !OTM */
-
+#undef TM_ARG
+#undef TM_ARG_ALONE
 #    define TM_ARG                        STM_SELF,
 #    define TM_ARG_ALONE                  STM_SELF
 #    define TM_ARGDECL                    STM_THREAD_T* TM_ARG
@@ -495,6 +421,8 @@ extern _tm_thread_context_t *thread_contexts;
 
 #      define TM_THREAD_ENTER()           omp_set_self()
 #      define TM_THREAD_EXIT()            /* Nothing */
+#      define TM_BEGIN_WAIVER()
+#      define TM_END_WAIVER()
 #      define thread_barrier_wait();      _Pragma ("omp barrier")
 
 #      define P_MALLOC(size)              memory_get(thread_getId(), size)
@@ -513,6 +441,8 @@ extern _tm_thread_context_t *thread_contexts;
                                           STM_SET_SELF(TM_ARG_ALONE)
 
 #      define TM_THREAD_EXIT()            STM_FREE_THREAD(TM_ARG_ALONE)
+#      define TM_BEGIN_WAIVER()
+#      define TM_END_WAIVER()
 
 #      define P_MALLOC(size)              memory_get(thread_getId(), size)
 #      define P_FREE(ptr)                 /* TODO: thread local free is non-trivial */
@@ -533,6 +463,8 @@ extern _tm_thread_context_t *thread_contexts;
 
 #      define TM_THREAD_ENTER()         /* nothing */
 #      define TM_THREAD_EXIT()          /* nothing */
+#      define TM_BEGIN_WAIVER()
+#      define TM_END_WAIVER()
 #      define thread_barrier_wait();    _Pragma ("omp barrier")
 
 #      define P_MALLOC(size)            malloc(size)
@@ -542,18 +474,22 @@ extern _tm_thread_context_t *thread_contexts;
 
 #    else /* !OTM */
 
-#      define TM_STARTUP(numThread)     STM_STARTUP()
+#      define TM_STARTUP(numThread)     STM_STARTUP(numThread)
 #      define TM_SHUTDOWN()             STM_SHUTDOWN()
 
 #      define TM_THREAD_ENTER()         TM_ARGDECL_ALONE = STM_NEW_THREAD(); \
                                         STM_INIT_THREAD(TM_ARG_ALONE, thread_getId())
 #      define TM_THREAD_EXIT()          STM_FREE_THREAD(TM_ARG_ALONE)
+#      define TM_BEGIN_WAIVER()
+#      define TM_END_WAIVER()
 
 #      define P_MALLOC(size)            malloc(size)
 #      define P_FREE(ptr)               free(ptr)
-#      define TM_MALLOC(size)           STM_MALLOC(size)
-#      define TM_FREE(ptr)              STM_FREE(ptr)
+#      define SEQ_MALLOC(size)          malloc(size)
+#      define SEQ_FREE(ptr)             free(ptr)
 
+#      define TM_MALLOC(size)           TM_ALLOC(size)
+//#      define TM_FREE(ptr)              STM_FREE(ptr)
 #    endif /* !OTM */
 
 #  endif /* !SIMULATOR */
@@ -562,22 +498,73 @@ extern _tm_thread_context_t *thread_contexts;
 
 #    define TM_BEGIN()                  _Pragma ("omp transaction") {
 #    define TM_BEGIN_RO()               _Pragma ("omp transaction") {
-#    define TM_END(xid)                    }
+#    define TM_END()                    }
 #    define TM_RESTART()                omp_abort()
 
 #    define TM_EARLY_RELEASE(var)       /* nothing */
 
 #  else /* !OTM */
-
+#    undef TM_BEGIN
+#    undef TM_END
 #    define TM_BEGIN()                  STM_BEGIN_WR()
 #    define TM_BEGIN_RO()               STM_BEGIN_RD()
-#    define TM_END(xid)                 STM_END(xid)
+#    define TM_END()                    STM_END()
 #    define TM_RESTART()                STM_RESTART()
 
 #    define TM_EARLY_RELEASE(var)       /* nothing */
 
 #  endif /* !OTM */
 
+
+/* =============================================================================
+ * C++ STM API (it's an STM, but it has a HTM-ish interface
+ * =============================================================================
+ */
+#elif defined(CXXTM)
+
+#  define TM_ARG                        /* nothing */
+#  define TM_ARG_ALONE                  /* nothing */
+#  define TM_ARGDECL                    /* nothing */
+#  define TM_ARGDECL_ALONE              /* nothing */
+#  define TM_CALLABLE                   [[transaction_callable]]
+
+#  ifdef ITM
+#      include <itm.h>
+#      define TM_STARTUP(numThread)     _ITM_initializeProcess()
+#      define TM_SHUTDOWN()             _ITM_finalizeProcess()
+#      define TM_THREAD_ENTER()         _ITM_initializeThread()
+#      define TM_THREAD_EXIT()          _ITM_finalizeThread()
+
+#      ifdef STAMP_USE_WAIVER
+#          define TM_BEGIN_WAIVER()     __transaction [[waiver]] {
+#          define TM_END_WAIVER()       }
+#      else
+#          define TM_BEGIN_WAIVER()
+#          define TM_END_WAIVER()
+#      endif
+
+#  else
+#      define TM_STARTUP(numThread)     /* nothing */
+#      define TM_SHUTDOWN()             /* nothing */
+#      define TM_THREAD_ENTER()         /* nothing */
+#      define TM_THREAD_EXIT()          /* nothing */
+#      define TM_BEGIN_WAIVER()
+#      define TM_END_WAIVER()
+#  endif
+
+#  define P_MALLOC(size)                malloc(size)
+#  define P_FREE(ptr)                   free(ptr)
+#  define TM_MALLOC(size)               malloc(size)
+#  define TM_FREE(ptr)                  free(ptr)
+#  define SEQ_MALLOC(size)              malloc(size)
+#  define SEQ_FREE(ptr)                 free(ptr)
+
+#  define TM_BEGIN()                    __transaction [[relaxed]] {
+#  define TM_BEGIN_RO()                 __transaction [[relaxed]] {
+#  define TM_END()                      }
+#  define TM_RESTART()                  assert(0)
+
+#  define TM_EARLY_RELEASE(var)         /* nothing */
 
 /* =============================================================================
  * Sequential execution
@@ -594,39 +581,11 @@ extern _tm_thread_context_t *thread_contexts;
 #  define TM_ARGDECL_ALONE              /* nothing */
 #  define TM_CALLABLE                   /* nothing */
 
-#  define TM_STARTUP(numThreads)  \
-  do {						\
-    SimStartup(numThreads);		\
-  }while (0)
+#  define TM_STARTUP(numThread)         /* nothing */
+#  define TM_SHUTDOWN()                 /* nothing */
 
-#  define TM_SHUTDOWN()				\
-  do {						\
-    long count = getWorkItemCount();		\
-    printf("Work item count: %li\n", count);	\
-    fflush(NULL);				\
-  } while (0)
-
-#  define TM_THREAD_ENTER()						\
-  do {									\
-    SimRoiStart(thread_getId());					\
-  }while (0)
-
-#  define TM_THREAD_EXIT()			\
-  do {						\
-    SimRoiEnd(thread_getId(), 0);			\
-  }while (0)
-
-#  define TM_WORK_BEGIN()			\
-  do {						\
-    workBegin(0, 0);				\
-  }while (0)
-
-#  define TM_WORK_END()						\
-  do {								\
-    workEnd(0, 0);						\
-  }while (0)
-
-#  define TM_THREAD_FUNC_ENTER()        /* nothing */
+#  define TM_THREAD_ENTER()             /* nothing */
+#  define TM_THREAD_EXIT()              /* nothing */
 
 #  ifdef SIMULATOR
 
@@ -647,9 +606,8 @@ extern _tm_thread_context_t *thread_contexts;
 #  endif /* !SIMULATOR */
 
 #  define TM_BEGIN()                    /* nothing */
-#  define TM_BEGIN_TAGGED(tag)		/* nothing */
 #  define TM_BEGIN_RO()                 /* nothing */
-#  define TM_END(xid)                      /* nothing */
+#  define TM_END()                      /* nothing */
 #  define TM_RESTART()                  assert(0)
 
 #  define TM_EARLY_RELEASE(var)         /* nothing */
@@ -671,45 +629,67 @@ extern _tm_thread_context_t *thread_contexts;
 
 #if defined(OTM)
 
-#  define TM_SHARED_READ(var)           (var)
+#  define TM_SHARED_READ(var)         (var)
+#  define TM_SHARED_WRITE(var, val)   ({var = val; var;})
+
+#  define TM_SHARED_READ_I(var)         (var)
+#  define TM_SHARED_READ_L(var)         (var)
 #  define TM_SHARED_READ_P(var)         (var)
 #  define TM_SHARED_READ_F(var)         (var)
 
-#  define TM_SHARED_WRITE(var, val)     ({var = val; var;})
+#  define TM_SHARED_WRITE_I(var, val)   ({var = val; var;})
+#  define TM_SHARED_WRITE_L(var, val)   ({var = val; var;})
 #  define TM_SHARED_WRITE_P(var, val)   ({var = val; var;})
 #  define TM_SHARED_WRITE_F(var, val)   ({var = val; var;})
 
-#  define TM_LOCAL_WRITE(var, val)      ({var = val; var;})
+#  define TM_LOCAL_WRITE_I(var, val)    ({var = val; var;})
+#  define TM_LOCAL_WRITE_L(var, val)    ({var = val; var;})
 #  define TM_LOCAL_WRITE_P(var, val)    ({var = val; var;})
 #  define TM_LOCAL_WRITE_F(var, val)    ({var = val; var;})
 
 #else /* OTM */
 
-#  define TM_SHARED_READ(var)           STM_READ(var)
-#  define TM_SHARED_READ_P(var)         STM_READ_P(var)
-#  define TM_SHARED_READ_F(var)         STM_READ_F(var)
+#  define STMREAD  stm::stm_read
+#  define STMWRITE stm::stm_write
 
-#  define TM_SHARED_WRITE(var, val)     STM_WRITE((var), val)
-#  define TM_SHARED_WRITE_P(var, val)   STM_WRITE_P((var), val)
-#  define TM_SHARED_WRITE_F(var, val)   STM_WRITE_F((var), val)
+#  define TM_SHARED_READ(var)    STMREAD(&var, (stm::TxThread*)STM_SELF)
+#  define TM_SHARED_WRITE(var, val)   STMWRITE(&var, val, (stm::TxThread*)STM_SELF)
 
-#  define TM_LOCAL_WRITE(var, val)      STM_LOCAL_WRITE(var, val)
+#  define TM_SHARED_READ_I(var)    STMREAD(&var, (stm::TxThread*)STM_SELF)
+#  define TM_SHARED_READ_L(var)    STMREAD(&var, (stm::TxThread*)STM_SELF)
+#  define TM_SHARED_READ_P(var)    STMREAD(&var, (stm::TxThread*)STM_SELF)
+#  define TM_SHARED_READ_F(var)    STMREAD(&var, (stm::TxThread*)STM_SELF)
+
+#  define TM_SHARED_WRITE_I(var, val)   STMWRITE(&var, val, (stm::TxThread*)STM_SELF)
+#  define TM_SHARED_WRITE_L(var, val)   STMWRITE(&var, val, (stm::TxThread*)STM_SELF)
+#  define TM_SHARED_WRITE_P(var, val)   STMWRITE(&var, val, (stm::TxThread*)STM_SELF)
+#  define TM_SHARED_WRITE_F(var, val)   STMWRITE(&var, val, (stm::TxThread*)STM_SELF)
+
+#  define TM_LOCAL_WRITE_I(var, val)    STM_LOCAL_WRITE_I(var, val)
+#  define TM_LOCAL_WRITE_L(var, val)    STM_LOCAL_WRITE_L(var, val)
 #  define TM_LOCAL_WRITE_P(var, val)    STM_LOCAL_WRITE_P(var, val)
 #  define TM_LOCAL_WRITE_F(var, val)    STM_LOCAL_WRITE_F(var, val)
+#  define TM_LOCAL_WRITE_D(var, val)    STM_LOCAL_WRITE_D(var, val)
 
 #endif /* !OTM */
 
 #else /* !STM */
 
-#  define TM_SHARED_READ(var)           (var)
+#  define TM_SHARED_READ(var)         (var)
+#  define TM_SHARED_WRITE(var, val)   ({var = val; var;})
+
+#  define TM_SHARED_READ_I(var)         (var)
+#  define TM_SHARED_READ_L(var)         (var)
 #  define TM_SHARED_READ_P(var)         (var)
 #  define TM_SHARED_READ_F(var)         (var)
 
-#  define TM_SHARED_WRITE(var, val)     ({var = val; var;})
+#  define TM_SHARED_WRITE_I(var, val)   ({var = val; var;})
+#  define TM_SHARED_WRITE_L(var, val)   ({var = val; var;})
 #  define TM_SHARED_WRITE_P(var, val)   ({var = val; var;})
 #  define TM_SHARED_WRITE_F(var, val)   ({var = val; var;})
 
-#  define TM_LOCAL_WRITE(var, val)      ({var = val; var;})
+#  define TM_LOCAL_WRITE_I(var, val)    ({var = val; var;})
+#  define TM_LOCAL_WRITE_L(var, val)    ({var = val; var;})
 #  define TM_LOCAL_WRITE_P(var, val)    ({var = val; var;})
 #  define TM_LOCAL_WRITE_F(var, val)    ({var = val; var;})
 
@@ -718,6 +698,16 @@ extern _tm_thread_context_t *thread_contexts;
 
 #endif /* TM_H */
 
+/* =============================================================================
+ * Fix some missing things for ITM.
+ * =============================================================================
+ */
+#if defined(ITM)
+extern "C" {
+[[transaction_safe]] void* malloc(size_t) __THROW;
+[[transaction_safe]] void free(void*) __THROW;
+}
+#endif
 
 /* =============================================================================
  *

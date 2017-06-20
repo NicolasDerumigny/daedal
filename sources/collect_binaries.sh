@@ -1,12 +1,12 @@
-BENCHMARKS="STAMP-bayes STAMP-genome STAMP-intruder STAMP-kmeans STAMP-labyrinth STAMP-vacation STAMP-yada"
+BENCHMARKS="STAMP-bayes STAMP-genome STAMP-intruder STAMP-kmeans STAMP-labyrinth STAMP-vacation STAMP-yada STAMP-ssca2"
 
-
+make -s veryclean
 echo Compiling....
 make -s
 
 rm -rf bin/*
 
-echo "Moving binaries.... (STAMP-ssca2 is not targetted right now because no loops are marked)"
+echo "Moving binaries.... "
 for BENCH in $BENCHMARKS
 do
 	cp ${BENCH}/bin/${BENCH}.original bin/${BENCH}.original

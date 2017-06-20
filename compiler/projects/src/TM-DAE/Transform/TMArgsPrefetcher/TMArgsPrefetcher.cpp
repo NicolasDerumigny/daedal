@@ -123,23 +123,31 @@ protected:
 			if (isa<LoadInst> (I)) {
 				set <Instruction *> Deps;
 				if (followDeps(&(*I), Deps, AA, true, true, true)) {
-					Function::iterator fI = BB->getParent()->begin();
-					// check the dependencies in the former basic blocks
-					// to have them in a topological order
-					do {
-						for (BasicBlock::iterator bI = fI->begin(), bE=fI->end(); bI!=bE; ++bI) {
-							if (Deps.find(&(*bI)) != Deps.end()) {
-								//TODO : check if it uses only values in Val or constants
-								toKeep.push_back(&(*bI));
-								Val.insert(&(*bI));
-								if (isa<LoadInst> (&(*bI))) {
-									//This load is in the dependencies of another load, keep it
-									StayLoad.insert(&(*bI));
+					//test: do not handle alloca
+					bool insert = true;
+					for (Instruction * Inst: Deps)
+						if (isa<AllocaInst>(Inst))
+							insert=false;
+
+					if (insert) {
+						Function::iterator fI = BB->getParent()->begin();
+						// check the dependencies in the former basic blocks
+						// to have them in a topological order
+						do {
+							for (BasicBlock::iterator bI = fI->begin(), bE=fI->end(); bI!=bE; ++bI) {
+								if (Deps.find(&(*bI)) != Deps.end()) {
+									//TODO : check if it uses only values in Val or constants
+									toKeep.push_back(&(*bI));
+									Val.insert(&(*bI));
+									if (isa<LoadInst> (&(*bI))) {
+										//This load is in the dependencies of another load, keep it
+										StayLoad.insert(&(*bI));
+									}
 								}
 							}
-						}
-					} while( &(*(fI++)) != BB);
-					toKeep.push_back(&(*I));
+						} while( &(*(fI++)) != BB);
+						toKeep.push_back(&(*I));
+					}
 				}
 			}
 		}
