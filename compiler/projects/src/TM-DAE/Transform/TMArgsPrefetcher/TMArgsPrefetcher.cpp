@@ -242,8 +242,8 @@ protected:
 					++i;
 				 }
 				 found = i!=0;
-				 if (found)
-				 	printStart()<<"Function Called: " <<cI->getCalledFunction()->getName()<<"\n";
+/*				 if (found)
+				 	printStart()<<"Function Called: " <<cI->getCalledFunction()->getName()<<"\n";*/
 			}
 		}
 		return found;
@@ -285,6 +285,43 @@ protected:
 		}
 	}
 
+	// Create several copies of the instruction to handle all possible PHINode
+	// affectation of variables one the first execution
+	int createPrefInstr(int depth,
+						list <Value *> & Args,
+						Instruction * Instr, 
+						map <Value *, set<Value *>> & oldToPrefetch,
+						list<Instruction *> & refined) {
+		if (depth == Instr->getNumOperands()) {
+			Instruction * nInst = Instr-> clone();
+			int i = 0;
+			for (Value * Val : Args) {
+				nInst->setOperand(i, Val);
+				++i;
+			}
+			oldToPrefetch[Instr].insert(nInst);
+			refined.push_back(nInst);
+			return 1;
+		} else {
+			int ret = 0;
+			Value * op = Instr->getOperand(depth);
+			if ( (isa<Instruction> (op) || isa<Argument> (op))
+				&& ! isa<GlobalValue> (op)) {
+				for (Value * Val: oldToPrefetch[op]) {
+					Args.push_back(Val);
+					ret = ret + createPrefInstr(depth + 1, Args, Instr, oldToPrefetch, refined);
+					Args.pop_back();
+				}
+			} else {
+				Args.push_back(op);
+				ret = createPrefInstr(depth + 1, Args, Instr, oldToPrefetch, refined);
+				Args.pop_back();
+			}
+
+			return ret;
+		}
+	}
+
 	// remove the instruction present twice, clone the others
 	// and replace the old values by its new one
 	int refine(map<Value*, pair<set <Value*>, list<Instruction *>>> & toKeepFun,
@@ -292,11 +329,14 @@ protected:
 		list<Instruction *> & refined) {
 		set<Instruction *> seen;
 		int ret = 0;
-		map <Value *, Value *> oldToPrefetch;
+		map <Value *, set<Value *>> oldToPrefetch;
+
 		//init oldToPrefetch with the arguments
 		for (auto& elmt: toKeepFun)
-			for (auto& elmt2: elmt.second.first)
-				oldToPrefetch[elmt2] = elmt.first;
+			for (auto& elmt2: elmt.second.first) {
+				oldToPrefetch[elmt2] = set<Value *> ();
+				oldToPrefetch[elmt2].insert(elmt.first);
+			}
 
 
 		for (auto& elmt: toKeepFun) {
@@ -310,51 +350,43 @@ protected:
 					seen.insert(elmt2);
 
 
-					if (isa<GetElementPtrInst> (elmt2)) {
-						GetElementPtrInst * Inst = cast<GetElementPtrInst> (elmt2);
-
-						Instruction * nInst = elmt2->clone();
-						for (unsigned i = 0; i<=Inst->getNumIndices(); ++i) {
+					if (isa<PHINode> (elmt2)) {
+						//push all possible values in oldToPrefetch
+						oldToPrefetch[elmt2] = set <Value *> ();
+						for (unsigned i = 0; i<elmt2->getNumOperands(); ++i) {
 							Value * op = elmt2->getOperand(i);
-							if ( (isa<Instruction> (op) || isa<Argument> (op))
-								&& ! isa<GlobalValue> (elmt2->getOperand(i))) {
-								nInst->setOperand(i, oldToPrefetch[op]);
+							if (oldToPrefetch.find(op) == oldToPrefetch.end()) {
+								oldToPrefetch[elmt2].insert(op);
 							}
 						}
-						oldToPrefetch[elmt2]=nInst;
-						refined.push_back(nInst);
-						++ret;
-
-					} else if (isa<CastInst> (elmt2)) {
-						CastInst * Inst = cast <CastInst> (elmt2);
-
-
-						Instruction * nInst = elmt2->clone();
-						if (! isa<GlobalValue> (elmt2->getOperand(0)))
-							nInst -> setOperand(0, oldToPrefetch[elmt2->getOperand(0)]);
-						oldToPrefetch[elmt2]=nInst;
-						refined.push_back(nInst);
-						++ret;
-
-					} else if (isa<PHINode> (elmt2)) {
-						// TODO: Do not push it, but create branches corresponding to the different
-						// possible values 
-
 					} else if (isa<LoadInst> (elmt2)) {
-						Instruction * nInst = elmt2->clone();
-						if (! isa<GlobalValue> (elmt2->getOperand(0)))
-							nInst -> setOperand(0, oldToPrefetch[elmt2->getOperand(0)]);
-						oldToPrefetch[elmt2]=nInst;
-						refined.push_back(nInst);
-						++ret;
-						if (StayLoad.find(elmt2) != StayLoad.end()) {
-							StayLoad.insert(nInst);
+						oldToPrefetch[elmt2] = set<Value *> ();
+
+						if (! isa<GlobalValue> (elmt2->getOperand(0))) {
+							for (Value * Val: oldToPrefetch[elmt2->getOperand(0)]) {
+								Instruction * nInst = elmt2->clone();
+								nInst -> setOperand(0, Val);
+								oldToPrefetch[elmt2].insert(nInst);
+								refined.push_back(nInst);
+								++ret;
+								if (StayLoad.find(elmt2) != StayLoad.end()) {
+									StayLoad.insert(nInst);
+								}
+							}
+						} else { // Global value, no need to dupicate
+							Instruction * nInst = elmt2->clone();
+							oldToPrefetch[elmt2].insert(nInst);
+							refined.push_back(nInst);
+							++ret;
+							if (StayLoad.find(elmt2) != StayLoad.end()) {
+								StayLoad.insert(nInst);
+							}
 						}
+
 					} else {
-						Instruction * nInst = elmt2->clone();
-						oldToPrefetch[elmt2]=nInst;
-						refined.push_back(nInst);
-						++ret;
+						oldToPrefetch[elmt2] = set<Value *> ();
+						list <Value *> help;
+						ret = ret + createPrefInstr(0, help , elmt2, oldToPrefetch, refined);
 					}
 				}
 			}
