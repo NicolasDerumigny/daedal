@@ -90,17 +90,18 @@ public:
 
 					BasicBlock * BB = &(*FI);
 					// prefetch arguments of the called functions
-					map<Value*, pair< set<Value*>, list<Instruction *>>> toKeepFun;
+					map<Value *, pair< set<Value*>, list<Instruction *>>> toKeepFun;
 					set <Instruction *> StayLoad;
-					list<Instruction *> refined;
-					getFunArg(BB, toKeepFun, StayLoad);
-					int nbInst = refine(toKeepFun, StayLoad, refined);
+					list <Instruction *> refined;
+					map<Instruction *, map<Value *, Value *>> CallToArgs;
+					getFunArg(BB, toKeepFun, StayLoad, CallToArgs);
+					int nbInst = refine(toKeepFun, StayLoad, refined, CallToArgs);
 					printStart()<<fI->getName()<<": Instructions for calls: "<< nbInst<<"\n";
 
 					change |= toKeepFun.empty();
 					prefetchArgs(BB, refined, StayLoad);
-/*					BB-> print(errs());
-					errs()<<"\n";*/
+					BB-> print(errs());
+					errs()<<"\n";
 				}
 			}
 		}
@@ -113,17 +114,18 @@ protected:
 
 	// Collect the instructions that has to be kept in the access
 	// phase. Store also the loads that cannot be prefetched
-	void collectToKeep(set <Value *> & Val,
-					   BasicBlock * BB, 
-					   list<Instruction *> & toKeep,
-					   set <Instruction *> & StayLoad) {
+	void collectToKeep(BasicBlock * BB, 
+					   pair <set <Value*>, list<Instruction *>> & toKeep,
+					   set <Instruction *> & StayLoad,
+					   queue<BasicBlock *> & Q,
+					   set<BasicBlock *> & visited,
+					   map<Instruction *, map<Value *, Value *>> & CallToArgs) {
 
 		for (BasicBlock::iterator I = BB->begin(), E = BB->end(); I != E; ++I) {
 
-			if (isa<LoadInst> (I)) {
+			if (isa <LoadInst> (I)) {
 				set <Instruction *> Deps;
 				if (followDeps(&(*I), Deps, AA, true, true, true)) {
-					//test: do not handle alloca
 					bool insert = true;
 					for (Instruction * Inst: Deps)
 						if (isa<AllocaInst>(Inst))
@@ -135,51 +137,87 @@ protected:
 						// to have them in a topological order
 						do {
 							for (BasicBlock::iterator bI = fI->begin(), bE=fI->end(); bI!=bE; ++bI) {
-								if (Deps.find(&(*bI)) != Deps.end()) {
-									//TODO : check if it uses only values in Val or constants
-									toKeep.push_back(&(*bI));
-									Val.insert(&(*bI));
+								if (Deps.find(&(*bI)) != Deps.end() 
+									&& toKeep.first.find(&(*bI)) == toKeep.first.end()) {
+									// if the instruction is in the dependencies and is not
+									// already kept (avoid doubles in toKeep.second)
+									toKeep.second.push_back(&(*bI));
+									toKeep.first.insert(&(*bI));
 									if (isa<LoadInst> (&(*bI))) {
-										//This load is in the dependencies of another load, keep it
+										// This load is in the dependencies of another load, keep it
 										StayLoad.insert(&(*bI));
 									}
 								}
 							}
 						} while( &(*(fI++)) != BB);
-						toKeep.push_back(&(*I));
+						toKeep.second.push_back(&(*I));
 					}
+				}
+			}
+
+			if (isa <CallInst> (I) && !cast<CallInst> (I)->isInlineAsm() && !(cast<CallInst> (I)->getCalledFunction()->isDeclaration())) {
+				CallInst * cI = cast<CallInst> (I);
+
+				//get here the correspondance arg-val
+				if (visited.find(&cI->getCalledFunction()->getEntryBlock()) == visited.end()) {
+					int i = 0;
+					Instruction * marker = cI->clone();
+					toKeep.second.push_back(marker);
+					CallToArgs[marker] = map <Value *, Value *> ();
+					// Use it to signal a call with the following arguments
+					// CallToArgs[marker]: value -> argument that takes the value
+					for (CallInst::op_iterator bC = cI->arg_begin(),
+								eC = cI->arg_end();bC != eC; ++bC) {
+						if (toKeep.first.find(*bC)!=toKeep.first.end() && 
+						(*bC)->getType()-> isPointerTy()) {
+							CallToArgs[marker][*bC] = collectInstr(i, *bC, cI->getCalledFunction(), 
+									toKeep, StayLoad, visited, CallToArgs);
+						}
+						++i;
+					}
+					toKeep.second.push_back(marker);
+					// Use it to signal the end of the call
 				}
 			}
 		}
 	}
 
 
-	// Return true if there is a load instruction that uses the i-th
-	// argument, computed by a BFS on the function
-	void collectInstr(int i, Function * F, 
+	// Compute by a BFS on the function to collect the instructions that are
+	// suitable for prefetching, and keep a map :
+	// value -> argument that takes this value
+	Value * collectInstr(int i,
+					  Value * Val,
+					  Function * F, 
 					  pair <set <Value*>, list<Instruction *>> & toKeep,
-					  set <Instruction *> & StayLoad) {
+					  set <Instruction *> & StayLoad,
+					  set<BasicBlock *> visited,
+					  map<Instruction *, map<Value *, Value *>> & CallToArgs) {
+		// visited should not be modified as it is local to the function call -> we want to prefetch two times
+		// the same function if there are two calls with different
+		// arguments
 		int target = 0;
+		Value * ret = nullptr;
 		for (ilist_iterator<Argument> b = F->getArgumentList().begin(),
 						    e = F->getArgumentList().end();b != e; ++b) {
 			if (target == i) {
 				toKeep.first.insert(&(*b));
+				ret = &(*b);
 				break;
 			}
 			++target;
 		}
-
-		set<BasicBlock *> visited;
 		queue<BasicBlock *> Q;
-		visited.insert(&F->getEntryBlock());
 		Q.push(&F->getEntryBlock());
 
 		while (!Q.empty()) {
 			BasicBlock * current = Q.front();
 			Q.pop();
 
-			collectToKeep(toKeep.first, current, toKeep.second, StayLoad);
+			collectToKeep(current, toKeep, StayLoad, Q, visited, CallToArgs);
 
+
+			visited.insert(current);
 
 			for (succ_iterator SI = succ_begin(current), E = succ_end(current);
 					 SI != E; ++SI) {
@@ -189,8 +227,36 @@ protected:
 				}
 			}
 		}
+		return ret;
 	}
 
+
+
+	// Put the values that are loaded and their dependencies in
+	// toKeepFun
+	void getAccessPhase(BasicBlock * BB,
+				  set<Value *> declaredVal, 
+				  map<Value*, pair< set<Value*>, list<Instruction *>>> & toKeepFun,
+				  set <Instruction *> & StayLoad,
+				  map<Instruction *, map<Value *, Value *>> & CallToArgs) {
+		bool found = false;
+		for (BasicBlock::iterator I = BB->begin(), E = BB->end(); I != E; ++I) {
+			if(isa<CallInst> (I) && ! cast<CallInst> (I) 
+					->getCalledFunction()->isDeclaration()) { 
+				CallInst * cI = cast<CallInst> (I);
+				int i = 0;
+				for (CallInst::op_iterator b = cI->arg_begin(),
+								e = cI->arg_end();b != e; ++b) {
+					if (declaredVal.find(*b)==declaredVal.end() && 
+						(*b)->getType()-> isPointerTy()) {
+						set<BasicBlock *> visited;
+						collectInstr(i, *b, cI->getCalledFunction(), toKeepFun[*b], StayLoad, visited, CallToArgs);
+					}
+					++i;
+				}
+			}
+		}
+	}
 
 
 	// simple BFS over the basic block to find all the avalaible 
@@ -199,7 +265,9 @@ protected:
 	void getFunArg(BasicBlock *	BB,
 				   map<Value*, pair< set<Value*>,
 				   list<Instruction *>>> & toKeepFun,
-				   set <Instruction *> & StayLoad) {
+				   set <Instruction *> & StayLoad,
+				   map<Instruction *, map<Value *, Value *>> & CallToArgs) {
+
 		vector<BasicBlock *> toVisit;
 		set<BasicBlock *> visited;
 		set<Value *> declaredVal;
@@ -214,7 +282,7 @@ protected:
 				for (succ_iterator SI = succ_begin(aBB), E = succ_end(aBB); SI != E; ++SI) {
 					if (visited.find(*SI) == visited.end() && !isEndTMOrLock(*SI)) {
 						addDeclaredValues(*SI, declaredVal, toKeepFun);
-						getFunctionArg(*SI, declaredVal, toKeepFun, StayLoad);
+						getAccessPhase(*SI, declaredVal, toKeepFun, StayLoad, CallToArgs);
 
 						ntoVisit.push_back(*SI);
 					}
@@ -226,70 +294,6 @@ protected:
 			toVisit.clear();
 			for(BasicBlock * next: ntoVisit)
 				toVisit.push_back(next);
-		}
-	}
-
-	// Put the values that are used by function calls in
-	// toKeepFun
-	bool getFunctionArg(BasicBlock * BB, 
-						set<Value *> declaredVal, 
-						map<Value*, pair< set<Value*>, list<Instruction *>>> & toKeepFun,
-						set <Instruction *> & StayLoad) {
-		bool found = false;
-		for (BasicBlock::iterator I = BB->begin(), E = BB->end(); I != E; ++I) {
-			if(isa<CallInst> (I)){
-				CallInst * cI = cast<CallInst> (I);
-				int i = 0;
-				for (CallInst::op_iterator b = cI->arg_begin(),
-												e = cI->arg_end();b != e; ++b){
-					if (declaredVal.find(*b)==declaredVal.end() && 
-						(*b)->getType()-> isPointerTy() 
-						&& !cI->getCalledFunction()->isDeclaration()) {
-						collectInstr(i, cI->getCalledFunction(), toKeepFun[*b], StayLoad);
-					}
-					++i;
-				 }
-				 found = i!=0;
-/*				 if (found)
-				 	printStart()<<"Function Called: " <<cI->getCalledFunction()->getName()<<"\n";*/
-			}
-		}
-		return found;
-	}
-
-
-
-	//insert prefetches before the TM_BEGIN
-	void prefetchArgs(BasicBlock* BB,
-		list<Instruction *> & refined,
-		set <Instruction *> StayLoad) {
-		refined.reverse();
-		// the last instruction should be insered first
-		for (auto & current : refined) {
-			if (isa<LoadInst>(current) && StayLoad.find(current) == StayLoad.end()) {
-
-				Value * ptr = cast<LoadInst> (current) -> getPointerOperand ();
-				// Make sure type is correct
-				unsigned PtrAS = ptr->getType()->getPointerAddressSpace();
-				Type *I8Ptr = Type::getInt8PtrTy(BB->getContext(), PtrAS);
-				CastInst *Cast =
-					CastInst::CreatePointerCast(ptr, I8Ptr, "", BB->getFirstNonPHI());
-
-				// Insert prefetch
-				IRBuilder<> Builder(BB, ++BB->begin());
-				//the cast is prefetched first, then the prefetch
-				Module *M = BB->getParent()->getParent();
-				Type *I32 = Type::getInt32Ty(BB->getContext());
-				Value *PrefFun = Intrinsic::getDeclaration(M, Intrinsic::prefetch);
-				CallInst *Prefetch = Builder.CreateCall(
-						PrefFun, {Cast, ConstantInt::get(I32, 0),								  // read
-											ConstantInt::get(I32, 3), ConstantInt::get(I32, 1)}); // data
-
-				//do not insert the load, we already have a prefetch
-				delete current; 
-			} else {
-				current->insertBefore(BB->getFirstNonPHI());
-			}
 		}
 	}
 
@@ -309,6 +313,7 @@ protected:
 			}
 			oldToPrefetch[Instr].insert(nInst);
 			refined.push_back(nInst);
+
 			return 1;
 		} else {
 			int ret = 0;
@@ -334,7 +339,8 @@ protected:
 	// and replace the old values by its new one
 	int refine(map<Value*, pair<set <Value*>, list<Instruction *>>> & toKeepFun,
 		set <Instruction *> & StayLoad,
-		list<Instruction *> & refined) {
+		list<Instruction *> & refined,
+		map<Instruction *, map<Value *, Value *>> CallToArgs) {
 		set<Instruction *> seen;
 		int ret = 0;
 		map <Value *, set<Value *>> oldToPrefetch;
@@ -350,9 +356,11 @@ protected:
 		for (auto& elmt: toKeepFun) {
 			if (!elmt.second.first.empty()) {
 				//if there is something to prefetch
+				stack<pair<Instruction *, set<Instruction *>>> Sfun;
 				for (auto& elmt2: elmt.second.second) {
 					//for all instructions that can be prefetched
-					if (seen.find(elmt2) != seen.end()) {
+					if (seen.find(elmt2) != seen.end() 
+						&& CallToArgs.find(elmt2) == CallToArgs.end()) {
 						continue;
 					}
 					seen.insert(elmt2);
@@ -391,6 +399,23 @@ protected:
 							}
 						}
 
+					} else if (isa<CallInst> (elmt2) && ! elmt2->getParent()) {
+						// it is a marker of a call
+						if (!Sfun.empty() && Sfun.top().first == elmt2) {
+							// this is the end: retore only the previously seen instruction
+							// to handle multiple calls to the same function
+							seen = Sfun.top().second;
+							Sfun.pop();
+							delete elmt2;
+						} else {
+							Sfun.push(make_pair(elmt2, seen));
+							//update the oldToPref accordingly to CallToArg[elmt2]
+							for (auto Arg: CallToArgs[elmt2]) {
+								oldToPrefetch[Arg.second].clear();
+								for (Value * possForArg: oldToPrefetch[Arg.first])
+									oldToPrefetch[Arg.second].insert(possForArg);
+							}
+						}
 					} else {
 						oldToPrefetch[elmt2] = set<Value *> ();
 						list <Value *> help;
@@ -402,6 +427,43 @@ protected:
 
 		return ret;
 	}
+
+
+
+	//insert prefetches before the TM_BEGIN
+	void prefetchArgs(BasicBlock* BB,
+		list<Instruction *> & refined,
+		set <Instruction *> StayLoad) {
+		refined.reverse();
+		// the last instruction should be insered first
+		for (auto & current : refined) {
+			if (isa<LoadInst>(current) && StayLoad.find(current) == StayLoad.end()) {
+
+				Value * ptr = cast<LoadInst> (current) -> getPointerOperand ();
+				// Make sure type is correct
+				unsigned PtrAS = ptr->getType()->getPointerAddressSpace();
+				Type *I8Ptr = Type::getInt8PtrTy(BB->getContext(), PtrAS);
+				CastInst *Cast =
+					CastInst::CreatePointerCast(ptr, I8Ptr, "", BB->getFirstNonPHI());
+
+				// Insert prefetch
+				IRBuilder<> Builder(BB, ++BB->begin());
+				//the cast is prefetched first, then the prefetch
+				Module *M = BB->getParent()->getParent();
+				Type *I32 = Type::getInt32Ty(BB->getContext());
+				Value *PrefFun = Intrinsic::getDeclaration(M, Intrinsic::prefetch);
+				CallInst *Prefetch = Builder.CreateCall(
+						PrefFun, {Cast, ConstantInt::get(I32, 0),								  // read
+											ConstantInt::get(I32, 3), ConstantInt::get(I32, 1)}); // data
+
+				//do not insert the load, we already have a prefetch
+				delete current; 
+			} else {
+				current->insertBefore(BB->getFirstNonPHI());
+			}
+		}
+	}
+
 
 
 	raw_ostream &printStart() { return (PRINTSTREAM << LIBRARYNAME << ": "); }

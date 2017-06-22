@@ -533,7 +533,6 @@ void constructArgVector(list <LoadInst *> toHoist, BasicBlock * BB,
 	map<Value *, char> seen;
 	funArgs[BB] = vector<Value *> ();
 	for (LoadInst * LInst: toHoist){
-		//TODO very fragile
 		if (seen.find(cast<GetElementPtrInst> (LInst->getPointerOperand())->getPointerOperand())==seen.end()){
 			funArgs[BB].push_back(loadToVal[LInst]);
 			seen[cast<GetElementPtrInst> (LInst->getPointerOperand())->getPointerOperand()] = 1;

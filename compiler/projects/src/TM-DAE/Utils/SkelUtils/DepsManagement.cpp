@@ -92,12 +92,12 @@ bool followDeps(set<Instruction *> &Set, set<Instruction *> &DepSet, AliasAnalys
 
 			res = onlyReadsMemory || annotatedToBeLocal;
 			if (!res) {
-				errs() << "<!call " << *Inst << "!>\n";
+				//errs() << "<!call " << *Inst << "!>\n";
 			}
 		} else if (StoreInst::classof(Inst)) {
 			res = isLocalPointer(((StoreInst *)Inst)->getPointerOperand());
 			if (!res) {
-				errs() << " <!store " << *Inst << "!>\n";
+				//errs() << " <!store " << *Inst << "!>\n";
 			}
 		}
 		if (res) {
