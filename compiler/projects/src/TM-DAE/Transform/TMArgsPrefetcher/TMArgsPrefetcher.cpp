@@ -33,6 +33,7 @@
 #include "llvm/Analysis/TargetTransformInfo.h"
 #include "llvm/Analysis/CFG.h"
 #include "llvm/IR/IRBuilder.h"
+#include "llvm/IR/InstrTypes.h"
 #include "Util/Annotation/MetadataInfo.h"
 
 
@@ -100,8 +101,8 @@ public:
 
 					change |= toKeepFun.empty();
 					prefetchArgs(BB, refined, StayLoad);
-					BB-> print(errs());
-					errs()<<"\n";
+/*					BB-> print(errs());
+					errs()<<"\n";*/
 				}
 			}
 		}
@@ -303,8 +304,22 @@ protected:
 						list <Value *> & Args,
 						Instruction * Instr, 
 						map <Value *, set<Value *>> & oldToPrefetch,
-						list<Instruction *> & refined) {
+						list<Instruction *> & refined,
+						map<list<Value *>, Value *> & seenGEP,
+						map<list<Value *>, Value *> & seenCast) {
 		if (depth == Instr->getNumOperands()) {
+			if (isa<GetElementPtrInst> (Instr)) {
+				if (seenGEP.find(Args) != seenGEP.end()) {
+					oldToPrefetch[Instr]=oldToPrefetch[seenGEP[Args]];
+					return 0;
+				}
+
+			} else if (isa<CastInst> (Instr)) {
+				if (seenCast.find(Args) != seenCast.end()) {
+					oldToPrefetch[Instr]=oldToPrefetch[seenCast[Args]];
+					return 0;
+				}
+			}
 			Instruction * nInst = Instr-> clone();
 			int i = 0;
 			for (Value * Val : Args) {
@@ -314,6 +329,13 @@ protected:
 			oldToPrefetch[Instr].insert(nInst);
 			refined.push_back(nInst);
 
+			if (isa<GetElementPtrInst> (Instr)) {
+				seenGEP[Args]=Instr;
+
+			} else if (isa<CastInst> (Instr)) {
+				seenCast[Args]=Instr;
+			}
+
 			return 1;
 		} else {
 			int ret = 0;
@@ -322,12 +344,12 @@ protected:
 				&& ! isa<GlobalValue> (op)) {
 				for (Value * Val: oldToPrefetch[op]) {
 					Args.push_back(Val);
-					ret = ret + createPrefInstr(depth + 1, Args, Instr, oldToPrefetch, refined);
+					ret = ret + createPrefInstr(depth + 1, Args, Instr, oldToPrefetch, refined, seenGEP, seenCast);
 					Args.pop_back();
 				}
 			} else {
 				Args.push_back(op);
-				ret = createPrefInstr(depth + 1, Args, Instr, oldToPrefetch, refined);
+				ret = createPrefInstr(depth + 1, Args, Instr, oldToPrefetch, refined, seenGEP, seenCast);
 				Args.pop_back();
 			}
 
@@ -341,9 +363,13 @@ protected:
 		set <Instruction *> & StayLoad,
 		list<Instruction *> & refined,
 		map<Instruction *, map<Value *, Value *>> CallToArgs) {
+		map<list<Value *>, Value *> seenGEP;
+		map<list<Value *>, Value *> seenCast;
+		map<Value *, Value *> seenLoad;
 		set<Instruction *> seen;
 		int ret = 0;
 		map <Value *, set<Value *>> oldToPrefetch;
+
 
 		//init oldToPrefetch with the arguments
 		for (auto& elmt: toKeepFun)
@@ -376,12 +402,22 @@ protected:
 							}
 						}
 					} else if (isa<LoadInst> (elmt2)) {
-						oldToPrefetch[elmt2] = set<Value *> ();
-
-						if (! isa<GlobalValue> (elmt2->getOperand(0))) {
-							for (Value * Val: oldToPrefetch[elmt2->getOperand(0)]) {
-								Instruction * nInst = elmt2->clone();
-								nInst -> setOperand(0, Val);
+						if (seenLoad.find(elmt2->getOperand(0)) == seenLoad.end()) {
+							oldToPrefetch[elmt2] = set<Value *> ();
+							Instruction * nInst;
+							if (! isa<GlobalValue> (elmt2->getOperand(0))) {
+								for (Value * Val: oldToPrefetch[elmt2->getOperand(0)]) {
+									nInst = elmt2->clone();
+									nInst -> setOperand(0, Val);
+									oldToPrefetch[elmt2].insert(nInst);
+									refined.push_back(nInst);
+									++ret;
+									if (StayLoad.find(elmt2) != StayLoad.end()) {
+										StayLoad.insert(nInst);
+									}
+								}
+							} else { // Global value, no need to duplicate
+								nInst = elmt2->clone();
 								oldToPrefetch[elmt2].insert(nInst);
 								refined.push_back(nInst);
 								++ret;
@@ -389,14 +425,9 @@ protected:
 									StayLoad.insert(nInst);
 								}
 							}
-						} else { // Global value, no need to dupicate
-							Instruction * nInst = elmt2->clone();
-							oldToPrefetch[elmt2].insert(nInst);
-							refined.push_back(nInst);
-							++ret;
-							if (StayLoad.find(elmt2) != StayLoad.end()) {
-								StayLoad.insert(nInst);
-							}
+							seenLoad[elmt2->getOperand(0)] = nInst;
+						} else {
+							oldToPrefetch[elmt2]=oldToPrefetch[seenLoad[elmt2->getOperand(0)]];
 						}
 
 					} else if (isa<CallInst> (elmt2) && ! elmt2->getParent()) {
@@ -419,7 +450,7 @@ protected:
 					} else {
 						oldToPrefetch[elmt2] = set<Value *> ();
 						list <Value *> help;
-						ret = ret + createPrefInstr(0, help , elmt2, oldToPrefetch, refined);
+						ret = ret + createPrefInstr(0, help , elmt2, oldToPrefetch, refined, seenGEP, seenCast);
 					}
 				}
 			}
