@@ -112,6 +112,44 @@ public:
 protected:
 	AliasAnalysis *AA;
 
+	bool addInstr(Instruction * I,
+				  BasicBlock * BB,
+				  pair <set <Value*>, list<Instruction *>> & toKeep,
+				  set <Instruction *> & StayLoad) {
+		set <Instruction *> Deps;
+		if (followDeps(I, Deps, AA, true, true, true)) {
+			bool insert = true;
+			for (Instruction * Inst: Deps)
+				if (isa<AllocaInst>(Inst))
+					insert=false;
+
+			if (insert) {
+				Function::iterator fI = BB->getParent()->begin();
+				// check the dependencies in the former basic blocks
+				// to have them in a topological order
+				do {
+					for (BasicBlock::iterator bI = fI->begin(), bE=fI->end(); bI!=bE; ++bI) {
+						if (Deps.find(&(*bI)) != Deps.end() 
+							&& toKeep.first.find(&(*bI)) == toKeep.first.end()) {
+							// if the instruction is in the dependencies and is not
+							// already kept (avoid doubles in toKeep.second)
+							toKeep.second.push_back(&(*bI));
+							toKeep.first.insert(&(*bI));
+							if (isa<LoadInst> (&(*bI))) {
+								// This load is in the dependencies of another load, keep it
+								StayLoad.insert(&(*bI));
+							}
+						}
+					}
+				} while( &(*(fI++)) != BB);
+				toKeep.second.push_back(&(*I));
+			}
+			return insert;
+		} else {
+			return false;
+		}
+	}
+
 
 	// Collect the instructions that has to be kept in the access
 	// phase. Store also the loads that cannot be prefetched
@@ -156,28 +194,38 @@ protected:
 				}
 			}
 
-			if (isa <CallInst> (I) && !cast<CallInst> (I)->isInlineAsm() && !(cast<CallInst> (I)->getCalledFunction()->isDeclaration())) {
+			if (isa <CallInst> (I) && !cast<CallInst> (I)->isInlineAsm()) {
 				CallInst * cI = cast<CallInst> (I);
 
-				//get here the correspondance arg-val
-				if (visited.find(&cI->getCalledFunction()->getEntryBlock()) == visited.end()) {
-					int i = 0;
-					Instruction * marker = cI->clone();
-					toKeep.second.push_back(marker);
-					CallToArgs[marker] = map <Value *, Value *> ();
-					// Use it to signal a call with the following arguments
-					// CallToArgs[marker]: value -> argument that takes the value
-					for (CallInst::op_iterator bC = cI->arg_begin(),
-								eC = cI->arg_end();bC != eC; ++bC) {
-						if (toKeep.first.find(*bC)!=toKeep.first.end() && 
-						(*bC)->getType()-> isPointerTy()) {
-							CallToArgs[marker][*bC] = collectInstr(i, *bC, cI->getCalledFunction(), 
-									toKeep, StayLoad, visited, CallToArgs);
+				if (!cI->getCalledFunction()->isDeclaration()) {
+					// visit the function and 
+					// get here the correspondance arg-val
+					if (visited.find(&cI->getCalledFunction()->getEntryBlock()) == visited.end()) {
+						int i = 0;
+						Instruction * marker = cI->clone();
+						toKeep.second.push_back(marker);
+						CallToArgs[marker] = map <Value *, Value *> ();
+						// Use it to signal a call with the following arguments
+						// CallToArgs[marker]: value -> argument that takes the value
+						for (CallInst::op_iterator bC = cI->arg_begin(),
+									eC = cI->arg_end();bC != eC; ++bC) {
+							if (toKeep.first.find(*bC)!=toKeep.first.end() && 
+							(*bC)->getType()-> isPointerTy()) {
+								CallToArgs[marker][*bC] = collectInstr(i, *bC, cI->getCalledFunction(), 
+										toKeep, StayLoad, visited, CallToArgs);
+							}
+							++i;
 						}
-						++i;
+						toKeep.second.push_back(marker);
+						// Use it to signal the end of the call
 					}
-					toKeep.second.push_back(marker);
-					// Use it to signal the end of the call
+				} else if (cI->getCalledFunction()->getName() == "llvm.memcpy.p0i8.p0i8.i64") {
+					//prefetch the first value of the memcpy instr
+					if (isa<Instruction> (cI->getOperand(0))) {
+						if (addInstr(cast<Instruction> (cI->getOperand(0)), BB, toKeep, StayLoad)) {
+							toKeep.second.push_back(&(*I));
+						}
+					}
 				}
 			}
 		}
@@ -447,6 +495,18 @@ protected:
 									oldToPrefetch[Arg.second].insert(possForArg);
 							}
 						}
+					} else if (isa<CallInst> (elmt2) && !cast<CallInst> (elmt2)->isInlineAsm() 
+						&& cast<CallInst> (elmt2)->getCalledFunction()
+						->getName() == "llvm.memcpy.p0i8.p0i8.i64") {
+						// there is a memcpy
+						oldToPrefetch[elmt2] = set<Value *> ();
+						list <Value *> help;
+						for (Value * Val: oldToPrefetch[elmt2->getOperand(0)]) {
+							ret++;
+							Instruction * nInst = elmt2->clone();
+							nInst->setOperand(0, Val);
+							refined.push_back(nInst);
+						}
 					} else {
 						oldToPrefetch[elmt2] = set<Value *> ();
 						list <Value *> help;
@@ -489,6 +549,19 @@ protected:
 
 				//do not insert the load, we already have a prefetch
 				delete current; 
+			} else if (isa<CallInst> (current) && !cast<CallInst> (current)->isInlineAsm() 
+						&& cast<CallInst> (current)->getCalledFunction()
+						->getName() == "llvm.memcpy.p0i8.p0i8.i64"){
+				// Insert prefetch
+				IRBuilder<> Builder(BB, ++BB->begin());
+				//the cast is prefetched first, then the prefetch
+				Module *M = BB->getParent()->getParent();
+				Type *I32 = Type::getInt32Ty(BB->getContext());
+				Value *PrefFun = Intrinsic::getDeclaration(M, Intrinsic::prefetch);
+				CallInst *Prefetch = Builder.CreateCall(
+						PrefFun, {current->getOperand(0), ConstantInt::get(I32, 0),								  // read
+											ConstantInt::get(I32, 3), ConstantInt::get(I32, 1)}); // data
+				delete current;
 			} else {
 				current->insertBefore(BB->getFirstNonPHI());
 			}

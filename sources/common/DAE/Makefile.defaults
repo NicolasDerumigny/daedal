@@ -36,6 +36,7 @@ get_dae_prerequisites=$$(shell echo $$@ | sed 's/indir.*/extract.ll/g')
 get_tm-dae_prerequisites=$$(shell echo `grep -l "__kernel__\|main" $(BINDIR)/*.marked.ll | sed 's=.marked.ll=.tm-gran.ll=g'` | sed "s=.tm-gran.ll=.$$*.tm-extract.ll=g")
 get_marked=$$(addprefix $(BINDIR)/, $$(addsuffix .marked.ll,$$(basename $$(SRCS))))
 get_objects=$$(addprefix $(BINDIR)/, $$(addsuffix .ll, $$(basename $$(SRCS))))
+get_O3_objects=$$(addprefix $(BINDIR)/, $$(addsuffix .O3.ll, $$(basename $$(SRCS))))
 get_gran_files=$$(shell grep -l "__kernel__" $(BINDIR)/*.marked.ll | sed 's/.marked.ll/.gran.ll/g')
 get_tm-gran_files=$$(shell grep -l "__kernel__" $(BINDIR)/*.marked.ll | sed 's/.marked.ll/.tm-gran.ll/g')
 get_kernel_marked_files=$$(shell grep -l "__kernel__\|main" $(BINDIR)/*.marked.ll | sed 's/.marked.ll/.$$*.O3.ll/g')
@@ -67,12 +68,17 @@ endif
 $(BINDIR)/%.$(ORIGINAL_SUFFIX): $(get_objects)
 	$(CLANGCPP) $(CXXFLAGS) $(CFLAGS) $^ $(LIB_OBJS) $(LDFLAGS) -L $(COMPILER_LIB) -o $@
 
+$(BINDIR)/$(BENCHMARK).$(ARGS_SUFFIX): $(BINDIR)/$(BENCHMARK).$(ARGS_SUFFIX).O3.ll
+	$(CLANGCPP) $(CXXFLAGS) $(CFLAGS) $^ $(LIB_OBJS) $(LDFLAGS) $(DVFS_FLAGS) -o $@
+
 $(BINDIR)/$(BENCHMARK).%.$(TM_SUFFIX): $(BINDIR)/$(BENCHMARK).%.$(TM_SUFFIX).O3.ll $(BINDIR)/$(BENCHMARK).%.$(TM_SUFFIX).GV_DAE.ll
 	$(CLANGCPP) $(CXXFLAGS) $(CFLAGS) $^ $(LIB_OBJS) $(LDFLAGS) $(DVFS_FLAGS) -o $@
 
 $(BINDIR)/$(BENCHMARK).%: $(get_unmodified_files) $(get_kernel_marked_files) $(BINDIR)/$(BENCHMARK).%.GV_DAE.ll
 	$(CLANGCPP) $(CXXFLAGS) $(CFLAGS) $^ $(LIB_OBJS) $(LDFLAGS) $(DVFS_FLAGS) -o $@
 
+$(BINDIR)/$(BENCHMARK).$(ARGS_SUFFIX).O3.ll: $(BINDIR)/$(BENCHMARK).$(ARGS_SUFFIX).ll
+	$(OPT) -S -load $(COMPILER_LIB)/libTMArgsPrefetcher.so -tm-prefetch-args -o $@ $^
 
 $(BINDIR)/$(BENCHMARK).%.$(TM_SUFFIX).O3.ll: $(BINDIR)/$(BENCHMARK).tm-gran$(get_gran_rule).$(TM_SUFFIX).ll
 	$(eval $@_INDIR:=$(get_indir))
@@ -82,6 +88,8 @@ $(BINDIR)/$(BENCHMARK).%.$(TM_SUFFIX).O3.ll: $(BINDIR)/$(BENCHMARK).tm-gran$(get
 	-always-inline -load $(COMPILER_LIB)/libRemoveRedundantPref.so -rrp \
 	-load $(COMPILER_LIB)/libTMArgsPrefetcher.so -tm-prefetch-args -o $@ $^
 
+$(BINDIR)/$(BENCHMARK).$(ARGS_SUFFIX).ll: $(get_O3_objects)
+	$(LINK) -S -o $@ $^
 
 $(BINDIR)/$(BENCHMARK).%.$(TM_SUFFIX).ll: $(get_tm-dae_prerequisites) $(get_unmodified_files)
 	$(LINK) -S -o $@ $^

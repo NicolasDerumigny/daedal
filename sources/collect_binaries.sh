@@ -10,6 +10,7 @@ echo "Moving binaries.... "
 for BENCH in $BENCHMARKS
 do
 	cp ${BENCH}/bin/${BENCH}.original bin/${BENCH}.original
-	cp ${BENCH}/bin/${BENCH}.tm-gran2.tm-indir4.tm-dae bin/${BENCH}.tm-dae
+	cp ${BENCH}/bin/${BENCH}.tm-gran2.tm-indir4.tm-full-dae bin/${BENCH}.tm-full-dae
+	cp ${BENCH}/bin/${BENCH}.tm-arg bin/${BENCH}.tm-arg
 done
 echo Done !
