@@ -194,10 +194,13 @@ protected:
 				}
 			}
 
-			if (isa <CallInst> (I) && !cast<CallInst> (I)->isInlineAsm()) {
+			if (isa <CallInst> (I) && !cast<CallInst> (I)->isInlineAsm()
+				&& (dyn_cast <GlobalValue> (cast<CallInst> (I)->getCalledFunction()))) {
 				CallInst * cI = cast<CallInst> (I);
-
-				if (!cI->getCalledFunction()->isDeclaration()) {
+				
+				//cI->print(errs()<<"\n");
+				// It should be neither a function variable nor an external function
+				if (!dyn_cast <GlobalValue> (cI->getCalledFunction())->isDeclaration()) {
 					// visit the function and 
 					// get here the correspondance arg-val
 					if (visited.find(&cI->getCalledFunction()->getEntryBlock()) == visited.end()) {

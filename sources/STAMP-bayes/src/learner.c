@@ -567,6 +567,7 @@ TMpopulateParentQueryVector (TM_ARGDECL
     list_t* parentIdListPtr = net_getParentIdListPtr(netPtr, id);
     list_iter_t it;
     TMLIST_ITER_RESET(&it, parentIdListPtr);
+#   pragma clang loop vectorize_width(1337)
     while (TMLIST_ITER_HASNEXT(&it, parentIdListPtr)) {
         long parentId = (long)TMLIST_ITER_NEXT(&it, parentIdListPtr);
         bool_t status = PVECTOR_PUSHBACK(parentQueryVectorPtr,

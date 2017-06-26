@@ -280,7 +280,6 @@ TMgrowRegion (TM_ARGDECL
 
         list_iter_t it;
         TMLIST_ITER_RESET(&it, neighborListPtr);
-#       pragma clang loop vectorize_width(1337)
         while (TMLIST_ITER_HASNEXT(&it, neighborListPtr)) {
             element_t* neighborElementPtr =
                 (element_t*)TMLIST_ITER_NEXT(&it, neighborListPtr);

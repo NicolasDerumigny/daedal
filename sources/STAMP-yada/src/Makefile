@@ -7,7 +7,7 @@ include ./Defines.common.mk
 
 BENCHMARK=STAMP-$(PROG)
 
-CFLAGS+=-pthread -I$(LIB_DIR) -DHTM -DOLD_RTM_MACROSES
+CFLAGS+=-pthread -DHTM -DOLD_RTM_MACROSES
 CXXFLAGS+=-O3
 LDFLAGS+=
 

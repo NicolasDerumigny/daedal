@@ -66,7 +66,7 @@ endif
 
 
 $(BINDIR)/%.$(ORIGINAL_SUFFIX): $(get_objects)
-	$(CLANGCPP) $(CXXFLAGS) $(CFLAGS) $^ $(LIB_OBJS) $(LDFLAGS) -L $(COMPILER_LIB) -o $@
+	$(CLANGCPP) $(CXXFLAGS) $(CFLAGS) $^ $(LIB_OBJS) $(LDFLAGS) $(LIB_LLS) -L $(COMPILER_LIB) -o $@
 
 $(BINDIR)/$(BENCHMARK).$(ARGS_SUFFIX): $(BINDIR)/$(BENCHMARK).$(ARGS_SUFFIX).O3.ll
 	$(CLANGCPP) $(CXXFLAGS) $(CFLAGS) $^ $(LIB_OBJS) $(LDFLAGS) $(DVFS_FLAGS) -o $@
@@ -88,10 +88,10 @@ $(BINDIR)/$(BENCHMARK).%.$(TM_SUFFIX).O3.ll: $(BINDIR)/$(BENCHMARK).tm-gran$(get
 	-always-inline -load $(COMPILER_LIB)/libRemoveRedundantPref.so -rrp \
 	-load $(COMPILER_LIB)/libTMArgsPrefetcher.so -tm-prefetch-args -o $@ $^
 
-$(BINDIR)/$(BENCHMARK).$(ARGS_SUFFIX).ll: $(get_O3_objects)
+$(BINDIR)/$(BENCHMARK).$(ARGS_SUFFIX).ll: $(get_O3_objects) $(LIB_LLS)
 	$(LINK) -S -o $@ $^
 
-$(BINDIR)/$(BENCHMARK).%.$(TM_SUFFIX).ll: $(get_tm-dae_prerequisites) $(get_unmodified_files)
+$(BINDIR)/$(BENCHMARK).%.$(TM_SUFFIX).ll: $(get_tm-dae_prerequisites) $(get_unmodified_files) $(LIB_LLS)
 	$(LINK) -S -o $@ $^
 
 %.dae.ll: $(get_dae_prerequisites)

@@ -8,8 +8,10 @@
 # ==============================================================================
 # Variables
 # ==============================================================================
+LEVEL=../..
+include $(LEVEL)/common/Makefile.environment
 
-CC      := clang
+CC      := $(LLVM_BIN)/clang
 GCC     := gcc
 AR      := ar
 CFLAGS  := -Wall -DOLD_RTM_MACROSES -DX86make -pthread
@@ -36,7 +38,7 @@ SRCS := \
 	../handlers/mt19937ar_1.c\
 	../handlers/spinlock.c
 #
-OBJS := ${SRCS:.c=.o}
+LLS := ${SRCS:.c=.ll}
 
 SRCS += ../handlers/abort_handlers.c
 
@@ -62,7 +64,7 @@ RM := rm -f
 # ==============================================================================
 # Unit tests
 # ==============================================================================
-all: $(OBJS)
+all: $(OBJS) $(LLS)
 
 
 ../gem5/m5op_x86.o: ../gem5/m5op_x86.S
@@ -71,13 +73,16 @@ all: $(OBJS)
 %.o: %.c
 	$(CC) -o $@ -c $< $(CFLAGS)
 
+%.ll: %.c
+	$(CC) $(CFLAGS) $^ -S -emit-llvm -o $@
+
 abort_handlers.a: ../handlers/abort_handlers.o ../handlers/mt19937ar_1.o ../handlers/spinlock.o
 	${AR} ${AR_FLAGS} $@ $^
 
 
 .PHONY: clean
 clean:
-	$(RM) $(OBJS) $(PROG_TEST)
+	$(RM) $(OBJS) $(PROG_TEST) $(LLS)
 
 .PHONY: test_bitmap
 test_bitmap: CFLAGS += -DTEST_BITMAP

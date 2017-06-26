@@ -4,7 +4,7 @@ make -s veryclean
 echo Compiling....
 make -s
 
-rm -rf bin/*
+rm -rf bin/*.original bin/*.tm-full-dae bin/*.tm-full-dae bin/*.tm-arg
 
 echo "Moving binaries.... "
 for BENCH in $BENCHMARKS

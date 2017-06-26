@@ -231,6 +231,7 @@ customer_getBill (TM_ARGDECL  customer_t* customerPtr)
         (list_t*)TM_SHARED_READ(customerPtr->reservationInfoListPtr);
 
     TMLIST_ITER_RESET(&it, reservationInfoListPtr);
+#   pragma clang loop vectorize_width(1337)
     while (TMLIST_ITER_HASNEXT(&it, reservationInfoListPtr)) {
         reservation_info_t* reservationInfoPtr =
             (reservation_info_t*)TMLIST_ITER_NEXT(&it, reservationInfoListPtr);

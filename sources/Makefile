@@ -21,4 +21,4 @@ clean:
 	$(MAKE) -C $(bench)/src clean;)
 
 veryclean: clean
-	rm $(LIBS-DIR)/*.o
+	rm $(LIBS-DIR)/*.o $(LIBS-DIR)/*.ll $(LIBS-DIR)/*.a

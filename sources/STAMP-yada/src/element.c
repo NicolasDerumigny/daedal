@@ -445,6 +445,7 @@ TMelement_alloc (TM_ARGDECL  coordinate_t* coordinates, long numCoordinate)
     elementPtr = (element_t*)TM_MALLOC(sizeof(element_t));
     if (elementPtr) {
         long i;
+#       pragma clang loop vectorize_width(1337)
         for (i = 0; i < numCoordinate; i++) {
             elementPtr->coordinates[i] = coordinates[i];
         }

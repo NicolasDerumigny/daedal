@@ -368,6 +368,7 @@ sequencer_run (void* argPtr)
 
             /* Find an empty constructEntries entry */
             TM_BEGIN();
+#           pragma clang loop vectorize_width(1337)
             while (((void*)TM_SHARED_READ_P(constructEntries[entryIndex].segment)) != NULL) {
                 entryIndex = (entryIndex + 1) % numUniqueSegment; /* look for empty */
             }
