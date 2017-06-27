@@ -459,7 +459,7 @@ bool isBeginTM(BasicBlock* BB) {
 			if(isa<InlineAsm> (cast<CallInst>(I)->getCalledValue()) &&
 				cast<InlineAsm>(cast<CallInst>(I)->getCalledValue())->getAsmString() == TM_BEGIN_ASM)
 				return true;
-		}	else {
+		} else {
 			if(isa<CallInst>(I) && cast<CallInst> (I) -> getCalledFunction() 
 			 && cast<CallInst> (I) -> getCalledFunction() ->	hasName()
 			 && cast<CallInst> (I) -> getCalledFunction() -> getName() == "beginTransaction") 
@@ -473,12 +473,24 @@ bool isBeginTM(BasicBlock* BB) {
 }
 
 bool isEndTMOrLock(BasicBlock* BB) {
-	for (BasicBlock::iterator I = BB->begin(), E = BB->end(); I != E; ++I)
+	for (BasicBlock::iterator I = BB->begin(), E = BB->end(); I != E; ++I) {
 		if(isa<CallInst>(I) && cast<CallInst>(I) -> isInlineAsm()) {
 			if(isa<InlineAsm> (cast<CallInst>(I)->getCalledValue()) &&
 				cast<InlineAsm>(cast<CallInst>(I)->getCalledValue())->getAsmString() == TM_END_ASM)
 				 return true;
 		} else {
+			if (auto* CstExpr = dyn_cast<ConstantExpr>(I->getOperand(0))) {
+				if (CstExpr->isCast()) {
+					Value * Fun = CstExpr->getOperand(0);
+					if (Fun -> getName() == "pthread_mutex_unlock" ||
+					Fun -> getName() == "pthread_mutex_lock" ||
+					Fun -> getName() == "commitTransaction")
+						return true;
+					// if this is a call bitcast, get the real function and figure out
+					continue;
+				}
+			}
+
 			if(isa<CallInst>(I) && cast<CallInst> (I) -> getCalledFunction() ->
 			 hasName() && cast<CallInst> (I) -> getCalledFunction() 
 			 -> getName() == "pthread_mutex_unlock") {
@@ -495,7 +507,7 @@ bool isEndTMOrLock(BasicBlock* BB) {
 			return true;
 			}
 		}
-		
+	}
 
 	return false;
 }

@@ -11,48 +11,48 @@
  *
  * For the license of bayes/sort.h and bayes/sort.c, please see the header
  * of the files.
- * 
+ *
  * ------------------------------------------------------------------------
- * 
+ *
  * For the license of kmeans, please see kmeans/LICENSE.kmeans
- * 
+ *
  * ------------------------------------------------------------------------
- * 
+ *
  * For the license of ssca2, please see ssca2/COPYRIGHT
- * 
+ *
  * ------------------------------------------------------------------------
- * 
+ *
  * For the license of lib/mt19937ar.c and lib/mt19937ar.h, please see the
  * header of the files.
- * 
+ *
  * ------------------------------------------------------------------------
- * 
+ *
  * For the license of lib/rbtree.h and lib/rbtree.c, please see
  * lib/LEGALNOTICE.rbtree and lib/LICENSE.rbtree
- * 
+ *
  * ------------------------------------------------------------------------
- * 
+ *
  * Unless otherwise noted, the following license applies to STAMP files:
- * 
+ *
  * Copyright (c) 2007, Stanford University
  * All rights reserved.
- * 
+ *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions are
  * met:
- * 
+ *
  *     * Redistributions of source code must retain the above copyright
  *       notice, this list of conditions and the following disclaimer.
- * 
+ *
  *     * Redistributions in binary form must reproduce the above copyright
  *       notice, this list of conditions and the following disclaimer in
  *       the documentation and/or other materials provided with the
  *       distribution.
- * 
+ *
  *     * Neither the name of Stanford University nor the names of its
  *       contributors may be used to endorse or promote products derived
  *       from this software without specific prior written permission.
- * 
+ *
  * THIS SOFTWARE IS PROVIDED BY STANFORD UNIVERSITY ``AS IS'' AND ANY
  * EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
  * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR
@@ -68,10 +68,16 @@
  * =============================================================================
  */
 
-
+#define _GNU_SOURCE
+#include <sched.h>
+#include <pthread.h>
 #include <assert.h>
 #include <stdlib.h>
+#include <string.h>
+
+#include "../handlers/abort_handlers.h"
 #include "thread.h"
+#include "tm.h"
 #include "types.h"
 
 static THREAD_LOCAL_T    global_threadId;
@@ -83,8 +89,9 @@ static THREAD_T*         global_threads         = NULL;
 static void            (*global_funcPtr)(void*) = NULL;
 static void*             global_argPtr          = NULL;
 static volatile bool_t   global_doShutdown      = FALSE;
-
-THREAD_MUTEX_T global_rtm_mutex;
+_tm_thread_context_t     *thread_contexts       = NULL; // global array of thread contexts
+                                                        // so we can access some neccesary info
+                                                        // when I test scheduling here
 
 /* =============================================================================
  * threadWait
@@ -94,7 +101,38 @@ THREAD_MUTEX_T global_rtm_mutex;
 static void
 threadWait (void* argPtr)
 {
+    int err;
+    cpu_set_t mask, check_mask;
     long threadId = *(long*)argPtr;
+    long numProcs = determineNumProcs();
+    long real_cpu = threadId % numProcs;
+
+    CPU_ZERO(&mask);
+    CPU_ZERO(&check_mask);
+    CPU_SET(real_cpu, &mask);
+
+    #ifndef NOTHREADPIN
+      err = pthread_setaffinity_np(pthread_self(), sizeof(mask), &mask);
+      assert(err == 0);
+      memset(&check_mask, 0, sizeof(check_mask));
+      err = pthread_getaffinity_np(pthread_self(), sizeof(check_mask), &check_mask);
+      assert(err == 0);
+      if (!CPU_ISSET(real_cpu, &check_mask)) {
+        int j;
+        printf("real_cpu: %ld, threadId: %ld, numProcs: %ld\n", real_cpu, threadId, numProcs);
+        printf("check_mask: \n");
+        for (j = 0; j < CPU_SETSIZE; j++)
+          if (CPU_ISSET(j, &check_mask))
+            printf("    CPU %d IS SET\n", j);
+        fflush(stdout);
+      }
+      assert(CPU_ISSET(real_cpu, &check_mask));
+      pthread_yield(); // force migration?
+    #else
+      err = 0;
+    #endif
+      assert(err == 0);
+
 
     THREAD_LOCAL_SET(global_threadId, (long)threadId);
 
@@ -111,6 +149,24 @@ threadWait (void* argPtr)
     }
 }
 
+long determineNumProcs()
+{
+  unsigned long long int bitmask;
+  int num_procs, err;
+  cpu_set_t available_procs;
+
+  /* Set up bitmasks to possibly assign thread affinities to */
+  err = pthread_getaffinity_np(pthread_self(), sizeof(cpu_set_t), &available_procs);
+  assert(err == 0);
+  bitmask = available_procs.__bits[0];
+  num_procs = 0;
+  while (bitmask > 0) {
+    num_procs++;
+    bitmask = bitmask >> 1;
+  }
+  return num_procs;
+}
+
 
 /* =============================================================================
  * thread_startup
@@ -122,15 +178,49 @@ void
 thread_startup (long numThread)
 {
     long i;
+    unsigned long long int bitmask;
+    int num_procs, err;
+    cpu_set_t available_procs;
+    cpu_set_t mask, check_mask;
 
     global_numThread = numThread;
     global_doShutdown = FALSE;
+
+    /* Set up bitmasks to possibly assign thread affinities to */
+    err = pthread_getaffinity_np(pthread_self(), sizeof(cpu_set_t), &available_procs);
+    assert(err == 0);
+    bitmask = available_procs.__bits[0];
+    num_procs = 0;
+    while (bitmask > 0) {
+      num_procs++;
+      bitmask = bitmask >> 1;
+    }
+    memset(&mask, 0, sizeof(mask));
+    memset(&check_mask, 0, sizeof(check_mask));
+
+#if defined(HTM)
+    initGlobals(numThread, num_procs);
+#endif
 
     /* Set up barrier */
     assert(global_barrierPtr == NULL);
     global_barrierPtr = THREAD_BARRIER_ALLOC(numThread);
     assert(global_barrierPtr);
     THREAD_BARRIER_INIT(global_barrierPtr, numThread);
+
+    /*Set up thread contexts */
+    thread_contexts =
+      (_tm_thread_context_t*)malloc(numThread * sizeof(_tm_thread_context_t));
+
+    for (i = 0; i < numThread; i++)
+    {
+      thread_contexts[i].threadId = i;
+      thread_contexts[i].real_cpu = i % num_procs;
+      thread_contexts[i].numThread = numThread;
+      thread_contexts[i].inFastForward = TRUE;
+      /*thread_contexts[i].appName = appName; // XXX added appname in thread_context*/
+      /*thread_contexts[i].registers_set = 0; // so we don't recreate our TM state*/
+    }
 
     /* Set up ids */
     THREAD_LOCAL_INIT(global_threadId);
@@ -154,6 +244,22 @@ thread_startup (long numThread)
                       &threadWait,
                       &global_threadIds[i]);
     }
+
+    mask.__bits[0] = 1 << 0; // set up our main thread to be pinned too,
+                             // unpin after workers are destroyed
+    #ifndef NOTHREADPIN
+      err = pthread_setaffinity_np(pthread_self(), sizeof(mask), &mask);
+      assert(err == 0);
+      memset(&check_mask, 0, sizeof(check_mask));
+      err = pthread_getaffinity_np(pthread_self(), sizeof(check_mask), &check_mask);
+      assert((err == 0) && (mask.__bits[0] == check_mask.__bits[0]));
+      pthread_yield(); // force migration?
+    #else
+      err = 0;
+      printf("No thread pinnning enabled\n");
+    #endif
+      assert(err == 0);
+
 
     /*
      * Wait for primary thread to call thread_start
@@ -197,6 +303,10 @@ thread_shutdown ()
     for (i = 1; i < numThread; i++) {
         THREAD_JOIN(global_threads[i]);
     }
+
+#if defined(HTM)
+    deleteGlobals();
+#endif
 
     THREAD_BARRIER_FREE(global_barrierPtr);
     global_barrierPtr = NULL;
@@ -365,7 +475,6 @@ thread_barrier_wait()
 
 #include <stdio.h>
 #include <unistd.h>
-
 
 #define NUM_THREADS    (4)
 #define NUM_ITERATIONS (3)

@@ -121,15 +121,15 @@ $(BINDIR)/Globals.ll: $(get_gran_files)
 #
 $(BINDIR)/%.ll: %.c
 	mkdir -p $(BINDIR)/$(shell dirname $^)
-	$(CLANG) $(CFLAGS) $^ -S -emit-llvm -o $@
+	$(CLANG) $(CFLAGS) -I $(LIB_DIR) $^ -S -emit-llvm -o $@
 
 $(BINDIR)/%.ll: %.cpp
 	mkdir -p $(BINDIR)/$(shell dirname $<)
-	$(CLANGCPP) $(CXXFLAGS) $^ -S -emit-llvm -o $@
+	$(CLANGCPP) $(CXXFLAGS) -I $(LIB_DIR) $^ -S -emit-llvm -o $@
 
 $(BINDIR)/%.ll: %.cc
 	mkdir -p $(BINDIR)/$(shell dirname $<)
-	$(CLANGCPP) $(CXXFLAGS)  $^ -S -emit-llvm -o $@
+	$(CLANGCPP) $(CXXFLAGS)  -I $(LIB_DIR) $^ -S -emit-llvm -o $@
 
 %.O3.ll: %.ll
 	$(OPT) -S -O3 $^ -o $@

@@ -357,7 +357,6 @@ __asm__ __volatile__ ("prefetcht0 %0" : : "m" (*(int *)cache_line)); \
 #  endif /* !OTM */
 
 #elif defined(HTM)
-
 #include <stdlib.h>
 
 #include "../handlers/abort_handlers.h"

@@ -100,12 +100,16 @@ public:
 					printStart()<<fI->getName()<<": Instructions for calls: "<< nbInst<<"\n";
 
 					change |= toKeepFun.empty();
-					prefetchArgs(BB, refined, StayLoad);
-/*					BB-> print(errs());
-					errs()<<"\n";*/
+					prefetchArgs(BB, refined, StayLoad);/*
+					errs()<<"inserted\n";
+					BB-> print(errs());
+					errs()<<"\n";
+					errs()<<"end inserted\n";*/
 				}
 			}
 		}
+		//M.dump();
+		PRINTSTREAM<<"\n";
 		return change;
 	}
 
@@ -150,6 +154,31 @@ protected:
 		}
 	}
 
+	// Insert the dependencies Deps into ToKeep
+	void insertDeps(BasicBlock * BB, 
+					set<Instruction *> Deps, 
+					pair <set <Value*>, list<Instruction *>> & toKeep,
+					set <Instruction *> & StayLoad) {
+		Function::iterator fI = BB->getParent()->begin();
+		// check the dependencies in the former basic blocks
+		// to have them in a topological order
+		do {
+			for (BasicBlock::iterator bI = fI->begin(), bE=fI->end(); bI!=bE; ++bI) {
+				if (Deps.find(&(*bI)) != Deps.end() 
+					&& toKeep.first.find(&(*bI)) == toKeep.first.end()) {
+					// if the instruction is in the dependencies and is not
+					// already kept (avoid doubles in toKeep.second)
+					toKeep.second.push_back(&(*bI));
+					toKeep.first.insert(&(*bI));
+					if (isa<LoadInst> (&(*bI))) {
+						// This load is in the dependencies of another load, keep it
+						StayLoad.insert(&(*bI));
+					}
+				}
+			}
+		} while( &(*(fI++)) != BB);
+	}
+
 
 	// Collect the instructions that has to be kept in the access
 	// phase. Store also the loads that cannot be prefetched
@@ -171,24 +200,7 @@ protected:
 							insert=false;
 
 					if (insert) {
-						Function::iterator fI = BB->getParent()->begin();
-						// check the dependencies in the former basic blocks
-						// to have them in a topological order
-						do {
-							for (BasicBlock::iterator bI = fI->begin(), bE=fI->end(); bI!=bE; ++bI) {
-								if (Deps.find(&(*bI)) != Deps.end() 
-									&& toKeep.first.find(&(*bI)) == toKeep.first.end()) {
-									// if the instruction is in the dependencies and is not
-									// already kept (avoid doubles in toKeep.second)
-									toKeep.second.push_back(&(*bI));
-									toKeep.first.insert(&(*bI));
-									if (isa<LoadInst> (&(*bI))) {
-										// This load is in the dependencies of another load, keep it
-										StayLoad.insert(&(*bI));
-									}
-								}
-							}
-						} while( &(*(fI++)) != BB);
+						insertDeps(BB, Deps, toKeep, StayLoad);
 						toKeep.second.push_back(&(*I));
 					}
 				}
@@ -196,14 +208,20 @@ protected:
 
 			if (isa <CallInst> (I) && !cast<CallInst> (I)->isInlineAsm()
 				&& (dyn_cast <GlobalValue> (cast<CallInst> (I)->getCalledFunction()))) {
+				// It should be neither a ASM call nor an local pointer, and comply with call bitcast
+
 				CallInst * cI = cast<CallInst> (I);
-				
-				//cI->print(errs()<<"\n");
-				// It should be neither a function variable nor an external function
-				if (!dyn_cast <GlobalValue> (cI->getCalledFunction())->isDeclaration()) {
+				Function * Fun = cI->getCalledFunction();
+				if (auto* CstExpr = dyn_cast<ConstantExpr>(I->getOperand(0))) {
+					if (CstExpr->isCast()) {
+						Fun = cast<Function> (CstExpr->getOperand(0));
+					}
+				}
+				if (!Fun->isDeclaration()) {
+
 					// visit the function and 
 					// get here the correspondance arg-val
-					if (visited.find(&cI->getCalledFunction()->getEntryBlock()) == visited.end()) {
+					if (visited.find(&Fun->getEntryBlock()) == visited.end()) {
 						int i = 0;
 						Instruction * marker = cI->clone();
 						toKeep.second.push_back(marker);
@@ -212,10 +230,35 @@ protected:
 						// CallToArgs[marker]: value -> argument that takes the value
 						for (CallInst::op_iterator bC = cI->arg_begin(),
 									eC = cI->arg_end();bC != eC; ++bC) {
-							if (toKeep.first.find(*bC)!=toKeep.first.end() && 
-							(*bC)->getType()-> isPointerTy()) {
-								CallToArgs[marker][*bC] = collectInstr(i, *bC, cI->getCalledFunction(), 
-										toKeep, StayLoad, visited, CallToArgs);
+
+							set <Instruction *> Deps;
+							bool insert = (*bC)->getType()-> isPointerTy() && 
+								(toKeep.first.find(*bC)!=toKeep.first.end());
+							if (insert && (toKeep.first.find(*bC)!=toKeep.first.end() 
+								|| followDeps(cast<Instruction> (*bC), Deps, AA, true, true, true))) {
+								for (Instruction * Inst: Deps)
+									if (isa<AllocaInst>(Inst))
+										insert=false;
+							}
+
+
+							if (insert) {
+								pair <set <Value*>, list<Instruction *>> testToKeep;
+								testToKeep.first = toKeep.first;
+								CallToArgs[marker][*bC] = collectInstr(i, *bC, Fun, 
+										testToKeep, StayLoad, visited, CallToArgs);
+								if (testToKeep.second.size() != 0) {
+									// if the i-th argument leads to something to prefetch
+									insertDeps(BB, Deps, toKeep, StayLoad);
+									// merge toKeep and testToKeep
+									for (auto Val: testToKeep.first) {
+										toKeep.first.insert(Val);
+									}
+									//testToKeep.second.reverse();
+									for (auto Inst: testToKeep.second) {
+										toKeep.second.push_back(Inst);
+									}
+								}
 							}
 							++i;
 						}
@@ -293,9 +336,20 @@ protected:
 				  map<Instruction *, map<Value *, Value *>> & CallToArgs) {
 		bool found = false;
 		for (BasicBlock::iterator I = BB->begin(), E = BB->end(); I != E; ++I) {
-			if(isa<CallInst> (I) && ! cast<CallInst> (I) 
-					->getCalledFunction()->isDeclaration()) { 
-				CallInst * cI = cast<CallInst> (I);
+			Function * Fun;
+			if(! isa<CallInst> (I))
+				continue;
+
+			CallInst * cI = cast<CallInst> (I);
+			Fun = cI ->getCalledFunction();
+
+			if (auto* CstExpr = dyn_cast<ConstantExpr>(I->getOperand(0))) {
+				if (CstExpr->isCast()) {
+					Fun = cast<Function> (CstExpr->getOperand(0));
+				}
+			}
+
+			if(!Fun->isDeclaration()) { 
 				int i = 0;
 				for (CallInst::op_iterator b = cI->arg_begin(),
 								e = cI->arg_end();b != e; ++b) {
@@ -319,6 +373,9 @@ protected:
 				   list<Instruction *>>> & toKeepFun,
 				   set <Instruction *> & StayLoad,
 				   map<Instruction *, map<Value *, Value *>> & CallToArgs) {
+		//TODO: analyse this instruction by instruction
+		if (isEndTMOrLock(BB))
+			return;
 
 		vector<BasicBlock *> toVisit;
 		set<BasicBlock *> visited;
@@ -541,7 +598,7 @@ protected:
 					CastInst::CreatePointerCast(ptr, I8Ptr, "", BB->getFirstNonPHI());
 
 				// Insert prefetch
-				IRBuilder<> Builder(BB, ++BB->begin());
+				IRBuilder<> Builder(BB->getFirstNonPHI()->getNextNode());
 				//the cast is prefetched first, then the prefetch
 				Module *M = BB->getParent()->getParent();
 				Type *I32 = Type::getInt32Ty(BB->getContext());
@@ -550,13 +607,13 @@ protected:
 						PrefFun, {Cast, ConstantInt::get(I32, 0),								  // read
 											ConstantInt::get(I32, 3), ConstantInt::get(I32, 1)}); // data
 
-				//do not insert the load, we already have a prefetch
+				//do not insert care about the load, we already have a prefetch
 				delete current; 
 			} else if (isa<CallInst> (current) && !cast<CallInst> (current)->isInlineAsm() 
 						&& cast<CallInst> (current)->getCalledFunction()
 						->getName() == "llvm.memcpy.p0i8.p0i8.i64"){
 				// Insert prefetch
-				IRBuilder<> Builder(BB, ++BB->begin());
+				IRBuilder<> Builder(BB->getFirstNonPHI()->getNextNode());
 				//the cast is prefetched first, then the prefetch
 				Module *M = BB->getParent()->getParent();
 				Type *I32 = Type::getInt32Ty(BB->getContext());
