@@ -54,8 +54,8 @@ void insertCallToAccessFunctionBeforeTM(set<BasicBlock *> bTS,	Function * access
 void insertCallToPAPI(CallInst *access, CallInst *execute);
 void insertCallOrigToPAPI(CallInst *execute);
 void insertCallInitPAPI(CallInst *mainF);
-bool isBeginTM(BasicBlock* BB);
-bool isEndTMOrLock(BasicBlock* BB);
+Instruction* isBeginTM(BasicBlock* BB);
+Instruction* isEndTMOrLock(BasicBlock* BB);
 void mapArgumentsToParams(Function *F, ValueToValueMapTy *VMap);
 void getBeginTransactionalSection(list<LoadInst * > & toHoist, CallInst * I, 
 	set<BasicBlock *> & bTS, vector<BasicBlock *> & vBlockWithoutBTS, 
@@ -453,31 +453,31 @@ void getBeginTransactionalSection(list<LoadInst * > & toHoist, CallInst * I,
 }
 
 
-bool isBeginTM(BasicBlock* BB) {
+Instruction* isBeginTM(BasicBlock* BB) {
 	for (BasicBlock::iterator I = BB->begin(), E = BB->end(); I != E; ++I){
 		if(isa<CallInst>(I) && cast<CallInst>(I) -> isInlineAsm()) {
 			if(isa<InlineAsm> (cast<CallInst>(I)->getCalledValue()) &&
 				cast<InlineAsm>(cast<CallInst>(I)->getCalledValue())->getAsmString() == TM_BEGIN_ASM)
-				return true;
+				return &(*I);
 		} else {
 			if(isa<CallInst>(I) && cast<CallInst> (I) -> getCalledFunction() 
 			 && cast<CallInst> (I) -> getCalledFunction() ->	hasName()
 			 && cast<CallInst> (I) -> getCalledFunction() -> getName() == "beginTransaction") 
-					return true;
+					return &(*I);
 		
 		}
 
 
 	}
-	return false;
+	return nullptr;
 }
 
-bool isEndTMOrLock(BasicBlock* BB) {
+Instruction* isEndTMOrLock(BasicBlock* BB) {
 	for (BasicBlock::iterator I = BB->begin(), E = BB->end(); I != E; ++I) {
 		if(isa<CallInst>(I) && cast<CallInst>(I) -> isInlineAsm()) {
 			if(isa<InlineAsm> (cast<CallInst>(I)->getCalledValue()) &&
 				cast<InlineAsm>(cast<CallInst>(I)->getCalledValue())->getAsmString() == TM_END_ASM)
-				 return true;
+				 return &(*I);
 		} else {
 			if (auto* CstExpr = dyn_cast<ConstantExpr>(I->getOperand(0))) {
 				if (CstExpr->isCast()) {
@@ -485,7 +485,7 @@ bool isEndTMOrLock(BasicBlock* BB) {
 					if (Fun -> getName() == "pthread_mutex_unlock" ||
 					Fun -> getName() == "pthread_mutex_lock" ||
 					Fun -> getName() == "commitTransaction")
-						return true;
+						return &(*I);
 					// if this is a call bitcast, get the real function and figure out
 					continue;
 				}
@@ -494,31 +494,40 @@ bool isEndTMOrLock(BasicBlock* BB) {
 			if(isa<CallInst>(I) && cast<CallInst> (I) -> getCalledFunction() ->
 			 hasName() && cast<CallInst> (I) -> getCalledFunction() 
 			 -> getName() == "pthread_mutex_unlock") {
-				return true;
+				return &(*I);
 			}
 			if(isa<CallInst>(I) && cast<CallInst> (I) -> getCalledFunction() -> 
 				hasName() && cast<CallInst> (I) -> getCalledFunction() -> 
 				getName() == "pthread_mutex_lock") {
-			return true;
+				return &(*I);
 			}
 			if(isa<CallInst>(I) && cast<CallInst> (I) -> getCalledFunction() -> 
 				hasName() && cast<CallInst> (I) -> getCalledFunction() -> 
 				getName() == "commitTransaction") {
-			return true;
+				return &(*I);
 			}
 		}
 	}
 
-	return false;
+	return nullptr;
 }
 
 //Add all declared value to the declaredVal map
 void addDeclaredValues(BasicBlock * aBB, set<Value *> & declaredVal,
 					 map<Value*, pair< set<Value*>, list<Instruction *>>> & toKeepFun) {
+	Instruction * Beg = isBeginTM(aBB), * End = isEndTMOrLock(aBB);
+	bool active = (Beg == nullptr);
+
 	for (BasicBlock::iterator I = aBB->begin(), E = aBB->end(); I != E; ++I) {
-		declaredVal.insert(&(*I));
-		toKeepFun[&(*I)] = pair<set <Value*>, list<Instruction *>>();
-		toKeepFun[&(*I)].first = set <Value*> ();
+		if (&(*I) == End)
+			return;
+		if (active) {
+			declaredVal.insert(&(*I));
+			toKeepFun[&(*I)] = pair<set <Value*>, list<Instruction *>>();
+			toKeepFun[&(*I)].first = set <Value*> ();
+		} else {
+			active = (&(*I) == Beg);
+		}
 	}
 }
 
