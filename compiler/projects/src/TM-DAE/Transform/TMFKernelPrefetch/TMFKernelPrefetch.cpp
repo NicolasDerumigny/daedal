@@ -205,7 +205,7 @@ protected:
 			set<Instruction *> Deps;
 			getDeps(*I, Deps);
 			int DataIndirCount = count_if(Deps.begin(), Deps.end(),
-																		[&](Instruction *DepI){return isa<LoadInst>(DepI) && LI->getLoopFor(DepI->getParent());});
+				[&](Instruction *DepI){return isa<LoadInst>(DepI) && LI->getLoopFor(DepI->getParent());});
 			bool UnderDataThreshold = DataIndirCount <= IndirThresh;
 			bool UnderCFGThreshold = !InstrhasMetadataKind(*I, "CFGIndir") ||
 					stoi(getInstructionMD(*I, "CFGIndir")) <= IndirThresh;
@@ -285,7 +285,7 @@ protected:
 				Function::Create(F->getFunctionType(), F->getLinkage(),
 												 F->getName() + CLONE_SUFFIX, F->getParent());
 		for (Function::arg_iterator aI = F->arg_begin(), aE = F->arg_end(),
-																acI = cF->arg_begin(), acE = cF->arg_end();
+			acI = cF->arg_begin(), acE = cF->arg_end();
 				 aI != aE; ++aI, ++acI) {
 			assert(acI != acE);
 			acI->setName(aI->getName());
@@ -515,14 +515,13 @@ protected:
 			access->removeFnAttr(Attribute::NoInline);
 			access->addFnAttr(Attribute::AlwaysInline);
 			
-		if (DontUseTM || forceNotTM) {
-			insertCallToAccessFunctionSequential(access, execute);
-		} else {
-			insertCallToAccessFunctionBeforeTM(bTS, access, execute, funArgs);
-		}
-
-
+			if (DontUseTM || forceNotTM) {
+				insertCallToAccessFunctionSequential(access, execute);
+			} else {
+				insertCallToAccessFunctionBeforeTM(bTS, access, execute, funArgs);
+			}
 			return true;
+
 		} else {
 			if (DontUseTM || forceNotTM){
 				printStart() << "Disqualified: no prefetches\n";
@@ -600,8 +599,9 @@ protected:
 	// be inserted in toKeep.
 	// Returns the result of the insertion.
 	PrefInsertResult
-	insertPrefetch(LoadInst *LInst, set<Instruction *> &toKeep,
-								 map<LoadInst *, pair<CastInst *, CallInst *>> &prefs) {
+	insertPrefetch(LoadInst *LInst,
+				   set<Instruction *> &toKeep,
+				   map<LoadInst *, pair<CastInst *, CallInst *>> &prefs) {
 
 		// Follow dependencies
 		set<Instruction *> Deps;
@@ -656,8 +656,8 @@ protected:
 		Type *I32 = Type::getInt32Ty(LInst->getContext());
 		Value *PrefFun = Intrinsic::getDeclaration(M, Intrinsic::prefetch);
 		CallInst *Prefetch = Builder.CreateCall(
-				PrefFun, {Cast, ConstantInt::get(I32, 0),											 // read
-									ConstantInt::get(I32, 3), ConstantInt::get(I32, 1)}); // data
+				PrefFun, {Cast, ConstantInt::get(I32, 0),			  // read
+				ConstantInt::get(I32, 3), ConstantInt::get(I32, 1)}); // data
 
 		// Inset prefetch instructions into book keeping
 		toKeep.insert(Cast);
@@ -681,17 +681,19 @@ protected:
 
 
 	//init loadToVal: LInst -> Value in the current call
-	void initLoadToVal(list<LoadInst * > & toPref, map<LoadInst *, Value*> & loadToVal) {
+	void initLoadToVal(list<LoadInst * > & toPref,
+					   map<LoadInst *, Value*> & loadToVal) {
 		list<LoadInst * > SureToPref;
 		for (LoadInst * LInst : toPref) {
 			bool isPresent = false;
 			Function::ArgumentListType & ArgLst = LInst->getParent()->
-																 getParent()->getArgumentList();
+				 getParent()->getArgumentList();
 			for (ilist_iterator<Argument> b = ArgLst.begin(), e = ArgLst.end();
-																														b != e; ++b) {
+													b != e; ++b) {
 
 				//TODO: very fragile
-				if ((cast<GetElementPtrInst> (LInst->getPointerOperand()))->getPointerOperand() == &(*b)){
+				if ((cast<GetElementPtrInst> (LInst->getPointerOperand()))
+									->getPointerOperand() == &(*b)){
 					loadToVal[LInst] = &(*b);
 					isPresent = true;
 				}
@@ -711,7 +713,7 @@ protected:
 		for (LoadInst * LInst : toPref) {
 			int argNbr = -1;
 			for (ilist_iterator<Argument> b = F->getArgumentList().begin(),
-												e = F->getArgumentList().end();b != e; ++b) {
+				e = F->getArgumentList().end();b != e; ++b) {
 				++argNbr;
 				if (loadToVal[LInst] == &(*b)) { 
 					loadToVal[LInst] = I->arg_begin()[argNbr];
@@ -784,8 +786,8 @@ protected:
 	}
 
 	bool SimplifyCFGExclude(Function *F, TargetTransformInfo &TTI,
-												unsigned bonusInstThreshold,
-												vector<BasicBlock *> excludeList) {
+							unsigned bonusInstThreshold,
+							vector<BasicBlock *> excludeList) {
 
 		bool modif = false;
 		Function::iterator bbI = F->begin(), bbE = F->end();

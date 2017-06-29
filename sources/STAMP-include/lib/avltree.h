@@ -127,7 +127,7 @@ jsw_avltree_t *Pjsw_avlnew ( cmp_f cmp );
 #endif
 void           jsw_avldelete ( jsw_avltree_t *tree );
 void           Pjsw_avldelete ( jsw_avltree_t *tree );
-void          *jsw_avlfind ( jsw_avltree_t *tree, void *data ) __attribute__((pure));
+void          *jsw_avlfind ( jsw_avltree_t *tree, void *data );
 long           jsw_avlinsert ( jsw_avltree_t *tree, void *data );
 long           Pjsw_avlinsert ( jsw_avltree_t *tree, void *data );
 long           jsw_avlerase ( jsw_avltree_t *tree, void *data );

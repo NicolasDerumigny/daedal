@@ -5,8 +5,8 @@
 # 
 
 # Targets to build
-INDIR_COUNT=4
-GRAN_COUNT=2
+INDIR_COUNT=1
+GRAN_COUNT=1
 
 ORIGINAL_SUFFIX=original
 CAE_SUFFIX=cae

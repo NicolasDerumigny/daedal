@@ -78,6 +78,7 @@ public:
 
 	bool runOnModule(Module &M) {
 		bool change = false;
+		PRINTSTREAM<<"\n";
 		for (Module::iterator fI = M.begin(), fE = M.end(); fI != fE; ++fI) {
 			for (Function::iterator FI = fI->begin(), eFI = fI->end(); FI != eFI; ++FI) {
 				if (isBeginTM(&(*FI))) {
@@ -109,7 +110,6 @@ public:
 			}
 		}
 		//M.dump();
-		PRINTSTREAM<<"\n";
 		return change;
 	}
 
@@ -404,8 +404,6 @@ protected:
 						map<list<Value *>, Value *> & seenGEP,
 						map<list<Value *>, Value *> & seenCast) {
 		if (depth == Instr->getNumOperands()) {
-/*			Instr->print(errs());
-			errs()<<"\n";*/
 			if (isa<GetElementPtrInst> (Instr)) {
 				if (seenGEP.find(Args) != seenGEP.end()) {
 					oldToPrefetch[Instr]=oldToPrefetch[seenGEP[Args]];
@@ -495,8 +493,6 @@ protected:
 						for (unsigned i = 0; i<elmt2->getNumOperands(); ++i) {
 							Value * op = elmt2->getOperand(i);
 							if (isa<Constant> (op)) {
-/*								op->print(errs());
-								errs()<<"CST \n";*/
 								oldToPrefetch[elmt2].insert(op);
 							} else if (oldToPrefetch.find(op) != oldToPrefetch.end()) {
 								for (Value * Val: oldToPrefetch[op]) {
@@ -608,7 +604,7 @@ protected:
 						&& cast<CallInst> (current)->getCalledFunction()
 						->getName() == "llvm.memcpy.p0i8.p0i8.i64"){
 				// Insert prefetch
-				IRBuilder<> Builder(BB->getFirstNonPHI()->getNextNode());
+				IRBuilder<> Builder(BB->getFirstNonPHI());
 				//the cast is prefetched first, then the prefetch
 				Module *M = BB->getParent()->getParent();
 				Type *I32 = Type::getInt32Ty(BB->getContext());

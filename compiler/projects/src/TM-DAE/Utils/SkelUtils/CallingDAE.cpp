@@ -56,6 +56,7 @@ void insertCallOrigToPAPI(CallInst *execute);
 void insertCallInitPAPI(CallInst *mainF);
 Instruction* isBeginTM(BasicBlock* BB);
 Instruction* isEndTMOrLock(BasicBlock* BB);
+Instruction* isAssertFail(BasicBlock* BB);
 void mapArgumentsToParams(Function *F, ValueToValueMapTy *VMap);
 void getBeginTransactionalSection(list<LoadInst * > & toHoist, CallInst * I, 
 	set<BasicBlock *> & bTS, vector<BasicBlock *> & vBlockWithoutBTS, 
@@ -168,8 +169,9 @@ void insertCallToAccessFunctionSequential(Function *F, Function *cF) {
 
 			I = dyn_cast<CallInst>(*i);
 			CallInst *ci = dyn_cast<CallInst>(I->clone());
-			ci->setCalledFunction(cF);
-			ci->insertAfter(I);
+			I->setCalledFunction(cF);
+			ci->setCalledFunction(F);
+			ci->insertBefore(I);
 
 			//insertCallToPAPI(I, ci);
 		}
@@ -179,7 +181,10 @@ void insertCallToAccessFunctionSequential(Function *F, Function *cF) {
 }
 
 
-void insertCallToAccessFunctionBeforeTM(set<BasicBlock *> bTS, Function * access, Function * execute, map<BasicBlock *, vector<Value *>> funArgs) {
+void insertCallToAccessFunctionBeforeTM(set<BasicBlock *> bTS,
+										Function * access,
+										Function * execute,
+										map<BasicBlock *, vector<Value *>> funArgs) {
 	CallInst *I;
 	BasicBlock *b;
 
@@ -506,6 +511,18 @@ Instruction* isEndTMOrLock(BasicBlock* BB) {
 				getName() == "commitTransaction") {
 				return &(*I);
 			}
+		}
+	}
+
+	return nullptr;
+}
+
+Instruction* isAssertFail(BasicBlock* BB) {
+	for (BasicBlock::iterator I = BB->begin(), E = BB->end(); I != E; ++I){
+		if(isa<CallInst>(I) && !cast<CallInst> (I) -> isInlineAsm()
+		&& cast<CallInst> (I) -> getCalledFunction() ->	hasName()
+		&& cast<CallInst> (I) -> getCalledFunction() -> getName() == "__assert_fail") {
+			return &(*I);
 		}
 	}
 

@@ -170,7 +170,6 @@ TMretriangulate (TM_ARGDECL
      */
 
     list_iter_reset(&it, beforeListPtr);
-#   pragma clang loop vectorize_width(1337)
     while (list_iter_hasNext(&it, beforeListPtr)) {
         element_t* beforeElementPtr =
             (element_t*)list_iter_next(&it, beforeListPtr);
@@ -217,7 +216,6 @@ TMretriangulate (TM_ARGDECL
      */
 
     list_iter_reset(&it, borderListPtr);
-#   pragma clang loop vectorize_width(1337)
     while (list_iter_hasNext(&it, borderListPtr)) {
         element_t* afterElementPtr;
         coordinate_t coordinates[3];
@@ -270,7 +268,6 @@ TMgrowRegion (TM_ARGDECL
     coordinate_t* centerCoordinatePtr = &centerCoordinate;
 
     PQUEUE_PUSH(expandQueuePtr, (void*)centerElementPtr);
-#   pragma clang loop vectorize_width(1337)
     while (!PQUEUE_ISEMPTY(expandQueuePtr)) {
 
         element_t* currentElementPtr = (element_t*)PQUEUE_POP(expandQueuePtr);
@@ -335,7 +332,6 @@ TMregion_refine (TM_ARGDECL
 
     TMELEMENT_ISGARBAGE(elementPtr); /* so we can detect conflicts */
 
-#   pragma clang loop vectorize_width(1337)
     while (1) {
         edgeMapPtr = PMAP_ALLOC(NULL, &element_mapCompareEdge);
         assert(edgeMapPtr);

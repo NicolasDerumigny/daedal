@@ -396,7 +396,6 @@ TMnet_hasEdge (TM_ARGDECL  net_t* netPtr, long fromId, long toId)
 
     list_iter_t it;
     TMLIST_ITER_RESET(&it, parentIdListPtr);
-#   pragma clang loop vectorize_width(1337)
     while (TMLIST_ITER_HASNEXT(&it, parentIdListPtr)) {
         long parentId = (long)TMLIST_ITER_NEXT(&it, parentIdListPtr);
         if (parentId == fromId) {
@@ -478,7 +477,6 @@ TMnet_isPath (TM_ARGDECL
     status = PQUEUE_PUSH(workQueuePtr, (void*)fromId);
     assert(status);
 
-#   pragma clang loop vectorize_width(1337)
     while (!PQUEUE_ISEMPTY(workQueuePtr)) {
         long id = (long)queue_pop(workQueuePtr);
         if (id == toId) {
@@ -693,7 +691,6 @@ TMnet_findAncestors (TM_ARGDECL
         list_t* parentIdListPtr = nodePtr->parentIdListPtr;
         list_iter_t it;
         TMLIST_ITER_RESET(&it, parentIdListPtr);
-#       pragma clang loop vectorize_width(1337)
         while (TMLIST_ITER_HASNEXT(&it, parentIdListPtr)) {
             long parentId = (long)TMLIST_ITER_NEXT(&it, parentIdListPtr);
             status = PBITMAP_SET(ancestorBitmapPtr, parentId);
@@ -703,7 +700,6 @@ TMnet_findAncestors (TM_ARGDECL
         }
     }
 
-#   pragma clang loop vectorize_width(1337)
     while (!PQUEUE_ISEMPTY(workQueuePtr)) {
         long parentId = (long)PQUEUE_POP(workQueuePtr);
         if (parentId == id) {
@@ -814,7 +810,6 @@ TMnet_findDescendants (TM_ARGDECL
         list_t* childIdListPtr = nodePtr->childIdListPtr;
         list_iter_t it;
         TMLIST_ITER_RESET(&it, childIdListPtr);
-#       pragma clang loop vectorize_width(1337)
         while (TMLIST_ITER_HASNEXT(&it, childIdListPtr)) {
             long childId = (long)TMLIST_ITER_NEXT(&it, childIdListPtr);
             status = PBITMAP_SET(descendantBitmapPtr, childId);
@@ -824,7 +819,6 @@ TMnet_findDescendants (TM_ARGDECL
         }
     }
 
-#   pragma clang loop vectorize_width(1337)
     while (!PQUEUE_ISEMPTY(workQueuePtr)) {
         long childId = (long)PQUEUE_POP(workQueuePtr);
         if (childId == id) {

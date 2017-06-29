@@ -91,14 +91,14 @@ bool followDeps(set<Instruction *> &Set, set<Instruction *> &DepSet, AliasAnalys
 			bool annotatedToBeLocal = util::InstrhasMetadata(Inst, "Call", "Local");
 
 			res = onlyReadsMemory || annotatedToBeLocal;
-/*			if (!res) {
-				errs() << "<!call " << *Inst << "!>\n";
-			}*/
+			if (!res) {
+				//errs() << "<!call " << *Inst << "!>\n";
+			}
 		} else if (StoreInst::classof(Inst)) {
 			res = isLocalPointer(((StoreInst *)Inst)->getPointerOperand());
-/*			if (!res) {
-				errs() << " <!store " << *Inst << "!>\n";
-			}*/
+			if (!res) {
+				//errs() << " <!store " << *Inst << "!>\n";
+			}
 		}
 		if (res) {
 			enqueueOperands(Inst, DepSet, Q);

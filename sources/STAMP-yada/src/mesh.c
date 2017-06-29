@@ -215,6 +215,7 @@ TMmesh_insert (TM_ARGDECL
 #   pragma clang loop vectorize_width(1337)
     for (i = 0; i < numEdge; i++) {
         edge_t* edgePtr = element_getEdge(elementPtr, i);
+        assert(1);
         if (!MAP_CONTAINS(edgeMapPtr, (void*)edgePtr)) {
             /* Record existance of this edge */
             bool_t isSuccess;
@@ -244,6 +245,7 @@ TMmesh_insert (TM_ARGDECL
      */
 
     edge_t* encroachedPtr = element_getEncroachedPtr(elementPtr);
+
     if (encroachedPtr) {
         if (!TMSET_CONTAINS(meshPtr->boundarySetPtr, encroachedPtr)) {
             element_clearEncroached(elementPtr);
@@ -275,7 +277,6 @@ TMmesh_remove (TM_ARGDECL  mesh_t* meshPtr, element_t* elementPtr)
     list_iter_t it;
     list_t* neighborListPtr = element_getNeighborListPtr(elementPtr);
     TMLIST_ITER_RESET(&it, neighborListPtr);
-#   pragma clang loop vectorize_width(1337)
     while (TMLIST_ITER_HASNEXT(&it, neighborListPtr)) {
         element_t* neighborPtr =
             (element_t*)TMLIST_ITER_NEXT(&it, neighborListPtr);
