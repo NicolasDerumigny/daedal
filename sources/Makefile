@@ -1,8 +1,8 @@
 # Copyright (C) Eta Scale AB. Licensed under the Eta Scale Open Source License. See the LICENSE file for details.
 
 BENCHMARKS = myBenchmark
-BENCHMARKS = STAMP-yada
-# BENCHMARKS = STAMP-bayes STAMP-genome STAMP-intruder STAMP-kmeans STAMP-labyrinth STAMP-ssca2 STAMP-vacation STAMP-yada
+BENCHMARKS = STAMP-labyrinth
+BENCHMARKS = STAMP-bayes STAMP-genome STAMP-intruder STAMP-kmeans STAMP-labyrinth STAMP-ssca2 STAMP-vacation STAMP-yada
 LIBS-DIR = STAMP-include/lib
 
 .SECONDEXPANSION:
@@ -21,4 +21,4 @@ clean:
 	$(MAKE) -C $(bench)/src clean;)
 
 veryclean: clean
-	rm $(LIBS-DIR)/*.o $(LIBS-DIR)/*.ll $(LIBS-DIR)/*.a
+	make clean -C $(LIBS-DIR)

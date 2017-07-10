@@ -54,6 +54,7 @@ void insertCallToAccessFunctionBeforeTM(set<BasicBlock *> bTS,	Function * access
 void insertCallToPAPI(CallInst *access, CallInst *execute);
 void insertCallOrigToPAPI(CallInst *execute);
 void insertCallInitPAPI(CallInst *mainF);
+void getInsideTM(BasicBlock * BB, set<Instruction *> & InsideTM);
 Instruction* isBeginTM(BasicBlock* BB);
 Instruction* isEndTMOrLock(BasicBlock* BB);
 Instruction* isAssertFail(BasicBlock* BB);
@@ -64,7 +65,7 @@ void getBeginTransactionalSection(list<LoadInst * > & toHoist, CallInst * I,
 void getCallers(Module * M, Function * F, vector<CallInst * > & vF);
 void constructArgVector(list <LoadInst *> toHoist, BasicBlock * BB, 
 	map<LoadInst *, Value*> & loadToVal, map<BasicBlock *, vector<Value *>> &funArgs);
-void addDeclaredValues(BasicBlock * aBB, set<Value *> & declaredVal,
+void addDeclaredValues(BasicBlock * aBB,
 					 map<Value*, pair< set<Value*>, list<Instruction *>>> & toKeepFun);
 
 
@@ -181,10 +182,12 @@ void insertCallToAccessFunctionSequential(Function *F, Function *cF) {
 }
 
 
-void insertCallToAccessFunctionBeforeTM(set<BasicBlock *> bTS,
-										Function * access,
-										Function * execute,
-										map<BasicBlock *, vector<Value *>> funArgs) {
+void insertCallToAccessFunctionBeforeTM(
+	set<BasicBlock *> bTS,
+	Function * access,
+	Function * execute,
+	map<BasicBlock *, vector<Value *>> funArgs) {
+	
 	CallInst *I;
 	BasicBlock *b;
 
@@ -408,6 +411,49 @@ void insertCallOrigToPAPI(CallInst *execute) {
 	Builder.CreateCall(profiler_end_execute, p_counters);
 }
 
+void getInsideTM(
+	BasicBlock * BB,
+	set<Instruction *> & InsideTM) {
+	
+	Instruction * Beg, * End;
+	set<BasicBlock *> visited;
+
+	if (!(Beg = isBeginTM (BB)))
+		return;
+
+	queue<BasicBlock *> Q;
+	Q.push(BB);
+
+	while(!Q.empty()) {
+		BasicBlock * current = Q.front();
+		Q.pop();
+
+		if (visited.find(current) != visited.end())
+			continue;
+		visited.insert(current);
+
+		End = isEndTMOrLock(current);
+		Beg = isBeginTM(current);
+		bool valid = !Beg;
+		for (BasicBlock::iterator I = current->begin(), E = current->end(); I != E; ++I) {
+			if (End == &*I)
+				valid = false;
+			if (valid)
+				InsideTM.insert(&*I);
+			if (Beg == &*I)
+				valid = true;
+		}
+
+		if (!End) {
+			for (succ_iterator SI = succ_begin(current), E = succ_end(current);
+							 								SI != E; ++SI) {
+				if (visited.find(*SI)==visited.end()) {
+					Q.push(*SI);
+				}
+			}
+		}
+	}
+}
 
 void getBeginTransactionalSection(list<LoadInst * > & toHoist, CallInst * I, 
 	set<BasicBlock *> & bTS, vector<BasicBlock *> & vBlockWithoutBTS, 
@@ -438,20 +484,20 @@ void getBeginTransactionalSection(list<LoadInst * > & toHoist, CallInst * I,
 		for (pred_iterator PI = pred_begin(current), E = pred_end(current);
 				 PI != E; ++PI) {
 			if(visited.find(*PI) == visited.end()) {
-					if (isBeginTM(*PI)){
-						constructArgVector(toHoist, *PI, loadToVal, funArgs);
+				if (isBeginTM(*PI)){
+					constructArgVector(toHoist, *PI, loadToVal, funArgs);
 
-						bTS.insert(*PI);
-					}
-					else
-						if (!isEndTMOrLock(*PI))
-							if (pred_begin(*PI) == pred_end(*PI))
-								//no predecessors
-								vBlockWithoutBTS.push_back(*PI);
-							else
-								queue.push(*PI);
-					
-					visited.insert(*PI);
+					bTS.insert(*PI);
+				}
+				else
+					if (!isEndTMOrLock(*PI))
+						if (pred_begin(*PI) == pred_end(*PI))
+							//no predecessors
+							vBlockWithoutBTS.push_back(*PI);
+						else
+							queue.push(*PI);
+				
+				visited.insert(*PI);
 			}
 		}
 	}
@@ -529,9 +575,11 @@ Instruction* isAssertFail(BasicBlock* BB) {
 	return nullptr;
 }
 
-//Add all declared value to the declaredVal map
-void addDeclaredValues(BasicBlock * aBB, set<Value *> & declaredVal,
-					 map<Value*, pair< set<Value*>, list<Instruction *>>> & toKeepFun) {
+//initialize toKeepFun for all possible values
+/*void addDeclaredValues(
+	BasicBlock * aBB,
+	map<Value*, pair< set<Value*>, list<Instruction *>>> & toKeepFun) {
+	
 	Instruction * Beg = isBeginTM(aBB), * End = isEndTMOrLock(aBB);
 	bool active = (Beg == nullptr);
 
@@ -539,14 +587,13 @@ void addDeclaredValues(BasicBlock * aBB, set<Value *> & declaredVal,
 		if (&(*I) == End)
 			return;
 		if (active) {
-			declaredVal.insert(&(*I));
 			toKeepFun[&(*I)] = pair<set <Value*>, list<Instruction *>>();
 			toKeepFun[&(*I)].first = set <Value*> ();
 		} else {
 			active = (&(*I) == Beg);
 		}
 	}
-}
+}*/
 
 void getCallers(Module * M, Function * F, vector<CallInst * > & vF){
 	//Gather in vF the functions inside which there is a call

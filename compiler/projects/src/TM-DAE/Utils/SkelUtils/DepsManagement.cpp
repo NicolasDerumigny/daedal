@@ -56,6 +56,21 @@ void enqueueOperands(Instruction *Inst, set<Instruction *> &Set,
 										 queue<Instruction *> &Q);
 void enqueueInst(Value *Val, set<Instruction *> &Set,
 								 queue<Instruction *> &Q);
+bool followDepsZLvl(set <Instruction *> InsideTM, set<Instruction *> &Set, 
+								set<Instruction *> &DepSet, AliasAnalysis * AA,
+								bool FollowMust, bool FollowPartial, bool FollowMay,
+								bool followStores = true, bool followCalls = true);
+bool followDepsZLvl(set <Instruction *> InsideTM, Instruction *Inst, set<Instruction *> &DepSet,
+								AliasAnalysis * AA, bool FollowMust, bool FollowPartial, 
+								bool FollowMay);
+void enqueueStoresZLvl(set <Instruction *> InsideTM, LoadInst *LInst, set<Instruction *> &Set,
+ 									 queue<Instruction *> &Q, AliasAnalysis * AA, bool FollowMust, 
+ 									 bool FollowPartial, bool FollowMay);
+void enqueueOperandsZLvl(set <Instruction *> InsideTM, Instruction *Inst, set<Instruction *> &Set,
+										 queue<Instruction *> &Q);
+void enqueueInstZLvl(set <Instruction *> InsideTM, Value *Val, set<Instruction *> &Set,
+								 queue<Instruction *> &Q);
+bool isPrefetchable(Instruction* Inst);
 bool isLocalPointer(Value *Pointer);
 bool isNonLocalPointer(Value *Pointer);
 bool checkCalls(Instruction *I);
@@ -70,9 +85,16 @@ AliasResult pointerAlias(Value *P1, Value *P2, const DataLayout &DL, AliasAnalys
 // Retrurns false iff a prohibited instruction are required.
 // The contents of Set and DepSet are only reliable if the result
 // is true.
-bool followDeps(set<Instruction *> &Set, set<Instruction *> &DepSet, AliasAnalysis * AA,
-								bool FollowMust, bool FollowPartial, bool FollowMay,
-								bool followStores, bool followCalls) {
+bool followDeps(
+	set<Instruction *> &Set,
+	set<Instruction *> &DepSet,
+	AliasAnalysis * AA,
+	bool FollowMust,
+	bool FollowPartial,
+	bool FollowMay,
+	bool followStores,
+	bool followCalls) {
+
 	bool valid = true;
 	queue<Instruction *> Q;
 	for (set<Instruction *>::iterator I = Set.begin(), E = Set.end();
@@ -118,20 +140,25 @@ bool followDeps(set<Instruction *> &Set, set<Instruction *> &DepSet, AliasAnalys
 }
 
 // Convinience call
-bool followDeps(Instruction *Inst, 
-				set<Instruction *> &DepSet, 
-				AliasAnalysis * AA, 
-				bool FollowMust, 
-				bool FollowPartial, 
-				bool FollowMay) {
+bool followDeps(
+	Instruction *Inst, 
+	set<Instruction *> &DepSet, 
+	AliasAnalysis * AA, 
+	bool FollowMust, 
+	bool FollowPartial, 
+	bool FollowMay) {
+
 	set<Instruction *> Set;
 	Set.insert(Inst);
 	return followDeps(Set, DepSet, AA, FollowMust, FollowPartial, FollowMay);
 }
 
 // Enques the operands of Inst.
-void enqueueOperands(Instruction *Inst, set<Instruction *> &Set,
-										 queue<Instruction *> &Q) {
+void enqueueOperands(
+	Instruction *Inst,
+	set<Instruction *> &Set,
+	queue<Instruction *> &Q) {
+
 	for (User::value_op_iterator I = Inst->value_op_begin(),
 								   E = Inst->value_op_end();
 											    I != E; ++I) {
@@ -142,8 +169,11 @@ void enqueueOperands(Instruction *Inst, set<Instruction *> &Set,
 // Adds Val to Set and Q provided it is an Instruction that has
 // never before been enqued to Q. This assumes that an Instruction
 // is present in Set iff it has been added to Q.
-void enqueueInst(Value *Val, set<Instruction *> &Set,
-								 queue<Instruction *> &Q) {
+void enqueueInst(
+	Value *Val,
+	set<Instruction *> &Set,
+	queue<Instruction *> &Q) {
+	
 	if (Instruction::classof(Val)) {
 		Instruction *Inst = (Instruction *)Val;
 		if (Set.insert(Inst).second) { // true if Inst was inserted
@@ -154,9 +184,14 @@ void enqueueInst(Value *Val, set<Instruction *> &Set,
 
 // Adds all StoreInsts that could be responsible for the value read
 // by LInst to Set and Q under the same condition as in enqueueInst.
-void enqueueStores(LoadInst *LInst, set<Instruction *> &Set,
-									 queue<Instruction *> &Q, AliasAnalysis * AA, 
-									 bool FollowMust, bool FollowPartial, bool FollowMay) {
+void enqueueStores(
+	LoadInst *LInst, set<Instruction *> &Set,
+	queue<Instruction *> &Q,
+	AliasAnalysis * AA, 
+	bool FollowMust,
+	bool FollowPartial,
+	bool FollowMay) {
+
 	BasicBlock *loadBB = LInst->getParent();
 	Value *Pointer = LInst->getPointerOperand();
 	queue<BasicBlock *> BBQ;
@@ -171,8 +206,7 @@ void enqueueStores(LoadInst *LInst, set<Instruction *> &Set,
 
 		BasicBlock::reverse_iterator RI(LInst->getIterator());
 		for (BasicBlock::reverse_iterator iI = first ? RI : BB->rbegin(),
-																			iE = BB->rend();
-				 iI != iE; ++iI) {
+				iE = BB->rend(); iI != iE; ++iI) {
 			if (StoreInst::classof(&(*iI))) {
 				StoreInst *SInst = (StoreInst *)&(*iI);
 				switch (pointerAlias(SInst->getPointerOperand(), Pointer,
@@ -211,6 +245,195 @@ void enqueueStores(LoadInst *LInst, set<Instruction *> &Set,
 		first = false;
 	}
 }
+
+
+bool followDepsZLvl(
+	set <Instruction *> InsideTM,
+	set <Instruction *> & Set,
+	set <Instruction *> & DepSet,
+	AliasAnalysis * AA,
+	bool FollowMust,
+	bool FollowPartial,
+	bool FollowMay,
+	bool followStores,
+	bool followCalls) {
+	
+	bool valid = true;
+	queue<Instruction *> Q;
+	for (set<Instruction *>::iterator I = Set.begin(), E = Set.end();
+			 I != E; ++I) {
+		enqueueOperandsZLvl(InsideTM, *I, DepSet, Q);
+	}
+	
+	while (!Q.empty()) {
+		bool res = true;
+		Instruction *Inst = Q.front();
+		Q.pop();
+
+		// Calls and stores are prohibited.
+		if (CallInst::classof(Inst)) {
+			res = false;
+			if (!res) {
+				//errs() << "<!call " << *Inst << "!>\n";
+			}
+		} else if (StoreInst::classof(Inst)) {
+			res = false;
+			//errs() << " <!store " << *Inst << "!>\n";
+		}
+		if (res) {
+			enqueueOperandsZLvl(InsideTM, Inst, DepSet, Q);
+			// Follow load/store
+			if (followStores && LoadInst::classof(Inst)) {
+				enqueueStoresZLvl(InsideTM, (LoadInst *)Inst, DepSet, Q, AA, FollowMust, FollowPartial, FollowMay);
+			}
+			if (followCalls) {
+				res = checkCalls(Inst);
+			}
+		} else {
+			valid = false;
+		}
+		
+	}
+	return valid;
+}
+
+// Convinience call
+bool followDepsZLvl(
+	set <Instruction *> InsideTM,
+	Instruction *Inst, 
+	set <Instruction *> & DepSet, 
+	AliasAnalysis * AA, 
+	bool FollowMust, 
+	bool FollowPartial, 
+	bool FollowMay) {
+	
+	set <Instruction *> Set;
+	Set.insert(Inst);
+	return followDepsZLvl(InsideTM, Set, DepSet, AA, FollowMust, FollowPartial, FollowMay);
+}
+
+// Enques the operands of Inst.
+void enqueueOperandsZLvl(
+	set <Instruction *> InsideTM,
+	Instruction *Inst,
+	set <Instruction *> & Set,
+	queue <Instruction *> & Q) {
+	
+	for (User::value_op_iterator I = Inst->value_op_begin(),
+								   E = Inst->value_op_end();
+											    I != E; ++I) {
+		enqueueInstZLvl(InsideTM, *I, Set, Q);
+	}
+}
+
+// Adds Val to Set and Q provided it is an Instruction that has
+// never before been enqued to Q. This assumes that an Instruction
+// is present in Set iff it has been added to Q.
+void enqueueInstZLvl(
+	set <Instruction *> InsideTM,
+	Value *Val,
+	set <Instruction *> &Set,
+	queue <Instruction *> &Q) {
+	
+	if (Instruction::classof(Val)) {
+		Instruction *Inst = (Instruction *)Val;
+		if (InsideTM.find(Inst) != InsideTM.end()) {
+			if (Set.insert(Inst).second) { // true if Inst was inserted
+				Q.push(Inst);
+			}
+		}
+	}
+}
+
+// Adds all StoreInsts that could be responsible for the value read
+// by LInst to Set and Q under the same condition as in enqueueInst.
+void enqueueStoresZLvl(
+	set <Instruction *> InsideTM,
+	LoadInst *LInst,
+	set<Instruction *> &Set,
+	queue<Instruction *> &Q,
+	AliasAnalysis * AA, 
+	bool FollowMust,
+	bool FollowPartial,
+	bool FollowMay) {
+	
+	BasicBlock *loadBB = LInst->getParent();
+	Value *Pointer = LInst->getPointerOperand();
+	queue<BasicBlock *> BBQ;
+	set<BasicBlock *> BBSet;
+	BBQ.push(loadBB);
+	bool first = true;
+	bool found;
+	while (!BBQ.empty()) {
+		BasicBlock *BB = BBQ.front();
+		BBQ.pop();
+		found = false;
+
+		BasicBlock::reverse_iterator RI(LInst->getIterator());
+		for (BasicBlock::reverse_iterator iI = first ? RI : BB->rbegin(),
+								iE = BB->rend(); iI != iE; ++iI) {
+			if (StoreInst::classof(&(*iI))) {
+				StoreInst *SInst = (StoreInst *)&(*iI);
+				switch (pointerAlias(SInst->getPointerOperand(), Pointer,
+														 iI->getModule()->getDataLayout(), AA)) {
+				case AliasResult::MustAlias:
+					if (FollowMust || FollowPartial || FollowMay) {
+						found = true;
+						enqueueInstZLvl(InsideTM, SInst, Set, Q);
+					}
+					break;
+				case AliasResult::PartialAlias:
+					if (FollowPartial || FollowMay) {
+						enqueueInstZLvl(InsideTM, SInst, Set, Q);
+					}
+					break;
+				case AliasResult::MayAlias:
+					if (FollowMay) {
+						enqueueInstZLvl(InsideTM, SInst, Set, Q);
+					}
+					break;
+				case AliasResult::NoAlias:
+					break;
+				}
+			} else if (Pointer == &(*iI)) {
+				found = true;
+			}
+		}
+		if (!found) {
+			for (pred_iterator pI = pred_begin(BB), pE = pred_end(BB); pI != pE;
+					 ++pI) {
+				if (BBSet.insert(*pI).second) {
+					BBQ.push(*pI);
+				}
+			}
+		}
+		first = false;
+	}
+}
+
+bool isPrefetchable(Value* Val, set <unsigned> ArgsCanDep) {
+	bool res = Val->getType()-> isPointerTy();
+	Instruction * Inst;
+
+	if (Inst = dyn_cast<Instruction> (Val)){
+		if (CallInst::classof(Inst)) {
+			bool onlyReadsMemory = ((CallInst *)Inst)->onlyReadsMemory();
+			bool annotatedToBeLocal = util::InstrhasMetadata(Inst, "Call", "Local");
+
+			res = onlyReadsMemory || annotatedToBeLocal;
+		} else if (AllocaInst::classof(Inst)) {
+			res = false;
+		}
+	}
+
+	if (isa <Argument> (Val) && 
+		ArgsCanDep.find(cast<Argument> (Val)->getArgNo()) == ArgsCanDep.end()) {
+		res = false;
+	}
+
+	return res;
+}
+
 
 // Returns true iff Pointer does have a local destination.
 bool isLocalPointer(Value *Pointer) {

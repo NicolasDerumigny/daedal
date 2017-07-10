@@ -32,7 +32,6 @@ SRCS := \
     rbtree.c \
 	thread.c \
 	vector.c \
-	../gem5/m5op_x86.S\
 	../gem5/m5ops_wrapper.c\
 	../handlers/abort_handlers.c\
 	../handlers/mt19937ar_1.c\
@@ -41,6 +40,7 @@ SRCS := \
 LLS := ${SRCS:.c=.ll}
 
 SRCS += ../handlers/abort_handlers.c
+SRCS += ../gem5/m5op_x86.S\
 
 OBJS += abort_handlers.a
 OBJS += ../gem5/m5op_x86.o
