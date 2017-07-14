@@ -376,7 +376,7 @@ router_solve (void* argPtr)
     while (1) {
 
         pair_t* coordinatePairPtr;
-        TM_BEGIN();
+        TM_BEGIN(0);
         if (TMQUEUE_ISEMPTY(workQueuePtr)) {
             coordinatePairPtr = NULL;
         } else {
@@ -393,7 +393,7 @@ router_solve (void* argPtr)
         bool_t success = FALSE;
         vector_t* pointVectorPtr = NULL;
 
-        TM_BEGIN();
+        TM_BEGIN(1);
         grid_copy(myGridPtr, gridPtr); /* ok if not most up-to-date */
         if (PdoExpansion(routerPtr, myGridPtr, myExpansionQueuePtr,
                          srcPtr, dstPtr)) {
@@ -422,7 +422,7 @@ router_solve (void* argPtr)
      * Add my paths to global list
      */
     list_t* pathVectorListPtr = routerArgPtr->pathVectorListPtr;
-    TM_BEGIN();
+    TM_BEGIN(2);
     TMLIST_INSERT(pathVectorListPtr, (void*)myPathVectorPtr);
     TM_END();
 

@@ -74,6 +74,7 @@ public:
 		AU.addRequired <TargetTransformInfoWrapperPass>();
 		AU.addRequired <AssumptionCacheTracker>();
 		AU.addRequired <TargetLibraryInfoWrapperPass>();
+		AU.addRequired <DominatorTreeWrapperPass>();
 	}
 
 
@@ -89,6 +90,9 @@ public:
 					// work around the limitations of the legacy pass manager.
 					AAResults AAR(createLegacyPMAAResults(*this, *fI, BAR));
 					AA = &AAR;
+					// Construct a Dominator tree to find the right place 
+					// to insert prefetches
+					DT = & getAnalysis<DominatorTreeWrapperPass>(*fI).getDomTree();
 
 
 					BasicBlock * BB = &*FI;
@@ -116,7 +120,8 @@ public:
 	}
 
 protected:
-	AliasAnalysis *AA;
+	AliasAnalysis * AA;
+	DominatorTree * DT;
 
 
 	// Inserts the dependencies Deps into toKeep
@@ -168,6 +173,9 @@ protected:
 			for (Instruction * Inst: Deps) {
 				if (isa <AllocaInst>(Inst))
 					return false;
+				if (isa <LoadInst> (Inst))
+					return false;
+
 				for (Instruction::op_iterator b=Inst->op_begin(), e=Inst->op_end(); b!=e; ++b) {
 					Argument * Arg;
 					if (Arg = dyn_cast <Argument> (*b)) {
@@ -199,9 +207,10 @@ protected:
 		set <Instruction *> Deps;
 		if (followDepsZLvl(InsideTM, I, Deps, AA, true, true, true)) {
 			for (Instruction * Inst: Deps) {
-				if (isa <AllocaInst>(Inst)) {
+				if (isa <AllocaInst>(Inst))
 					return false;
-				}
+				if (isa <LoadInst> (Inst))
+					return false;
 			}
 			
 			insertDeps(BB, Deps, toKeep, setKeep, StayLoad, I);
@@ -241,6 +250,28 @@ protected:
 		map <Instruction *, map <Value *, Value *>> & CallToArgs) {
 
 		for (BasicBlock::iterator I = BB->begin(), E = BB->end(); I != E; ++I) {
+
+
+			/*if (isa <ICmpInst> (I)) {
+				// If we compare directly a pointer, it cannot be use later
+				// as it may be invalid
+				for (Instruction::op_iterator b=I->op_begin(),
+									e=I->op_end(); b!=e; ++b) {
+					set <Instruction *> Deps;
+					if (followDeps(cast <Instruction> (*b), Deps, AA, true, true, true)) {
+						for (auto Inst : Deps) {
+							for (Instruction::op_iterator b2=Inst->op_begin(),
+								e2=Inst->op_end(); b2!=e2; ++b2) {
+								Argument * Arg;
+								if ((Arg = dyn_cast <Argument> (*b2)) &&
+									ArgsCanDep.find(Arg->getArgNo()) != ArgsCanDep.end()) {
+									ArgsCanDep.erase(Arg->getArgNo());
+								}
+							}
+						}
+					}
+				}
+			}*/
 
 			if (isa <LoadInst> (I)) {
 				set <unsigned> mayUsed;
@@ -287,7 +318,7 @@ protected:
 							// if the value is an instruction, compute its dependencies
 							// else, it is an argument so it may be used depending
 							// on its deps
-							if (cast <Instruction> (*b)) {
+							if (isa <Instruction> (*b)) {
 								Deps.insert(cast <Instruction> (*b));
 							} 
 							if (isa <Argument> (*b)) {
@@ -295,6 +326,8 @@ protected:
 							}
 							for (Instruction * Inst: Deps) {
 								if (isa <AllocaInst>(Inst))
+									insert=false;
+								if (isa <LoadInst> (Inst))
 									insert=false;
 								for (Instruction::op_iterator b=Inst->op_begin(),
 													e=Inst->op_end(); b!=e; ++b) {
@@ -456,13 +489,16 @@ protected:
 							(followDepsZLvl(InsideTM, cast <Instruction> (*b),
 												 Deps, AA, true, true, true)))) {
 
-								if (cast<Instruction> (*b)) {
+								if (isa<Instruction> (*b)) {
 									Deps.insert(cast <Instruction> (*b));
 								}
 
-								for (Instruction * Inst: Deps)
+								for (Instruction * Inst: Deps) {
 									if (isa <AllocaInst>(Inst))
 										insert=false;
+									if (isa <LoadInst> (Inst))
+										insert=false;
+								}
 
 								if (insert) {
 									ArgsToDeps[i]=Deps;
@@ -778,7 +814,7 @@ protected:
 		list <Instruction *> & refined,
 		set <Instruction *> StayLoad) {
 		
-		Instruction * Beg = isBeginTM(BB);
+		Instruction * Beg = getInsertPoint(isBeginTM(BB), DT);
 
 		for (auto & current : refined) {
 			if (isa <LoadInst>(current) && StayLoad.find(current) == StayLoad.end()) {

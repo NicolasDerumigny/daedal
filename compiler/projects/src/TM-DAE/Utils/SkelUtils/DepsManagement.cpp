@@ -270,15 +270,22 @@ bool followDepsZLvl(
 		Instruction *Inst = Q.front();
 		Q.pop();
 
-		// Calls and stores are prohibited.
+		// Calls and non-local stores are prohibited.
 		if (CallInst::classof(Inst)) {
+			bool onlyReadsMemory = ((CallInst *)Inst)->onlyReadsMemory();
+			bool annotatedToBeLocal = util::InstrhasMetadata(Inst, "Call", "Local");
+
+			res = onlyReadsMemory || annotatedToBeLocal;
 			res = false;
 			if (!res) {
 				//errs() << "<!call " << *Inst << "!>\n";
 			}
 		} else if (StoreInst::classof(Inst)) {
+			res = isLocalPointer(((StoreInst *)Inst)->getPointerOperand());
 			res = false;
-			//errs() << " <!store " << *Inst << "!>\n";
+			if (!res) {
+				//errs() << " <!store " << *Inst << "!>\n";
+			}
 		}
 		if (res) {
 			enqueueOperandsZLvl(InsideTM, Inst, DepSet, Q);

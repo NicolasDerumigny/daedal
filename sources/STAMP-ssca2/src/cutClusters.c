@@ -529,7 +529,7 @@ cutClusters (void* argPtr)
             global_iter = iter;
         }
 
-        TM_BEGIN();
+        TM_BEGIN(5);
         long tmp_cliqueSize = (long)TM_SHARED_READ(global_cliqueSize);
         TM_SHARED_WRITE(global_cliqueSize, (tmp_cliqueSize + cliqueSize));
         TM_END();
@@ -601,7 +601,7 @@ cutClusters (void* argPtr)
         }
     }
 
-    TM_BEGIN();
+    TM_BEGIN(6);
     long tmp_cutSetIndex = (long)TM_SHARED_READ(global_cutSetIndex);
     TM_SHARED_WRITE(global_cutSetIndex, (tmp_cutSetIndex + cutSetIndex));
     TM_END();

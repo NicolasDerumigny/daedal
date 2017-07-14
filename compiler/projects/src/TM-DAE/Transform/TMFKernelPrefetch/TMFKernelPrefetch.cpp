@@ -102,6 +102,7 @@ public:
 		AU.addRequired<TargetTransformInfoWrapperPass>();
 		AU.addRequired<AssumptionCacheTracker>();
 		AU.addRequired<TargetLibraryInfoWrapperPass>();
+		AU.addRequired <DominatorTreeWrapperPass>();
 	}
 
 
@@ -130,6 +131,7 @@ public:
 protected:
 	AliasAnalysis *AA;
 	LoopInfo *LI;
+	DominatorTree * DT;
 
 	// Anotates stores in fun with the closest alias type to
 	// any of the loads in toPref. (To be clear alias analysis are
@@ -484,6 +486,16 @@ protected:
 		} else {
 			SelectHoistForBeginTMSection(toPref, DepSet, access, bTS, funArgs);
 
+			if (bTS.size()!=1) {
+				PRINTSTREAM<<"FATAL ERROR: TM section has several begins\n";
+			} else {
+				for (BasicBlock * BB : bTS) {	
+					// Construct a Dominator tree to find the right place 
+					// to insert prefetches
+					DT = & getAnalysis<DominatorTreeWrapperPass>(*(BB->getParent())).getDomTree();
+				}
+			}
+
 			findTerminators(*access, toKeep);
 
 			for (LoadInst * inst : toPref) {
@@ -518,7 +530,7 @@ protected:
 			if (DontUseTM || forceNotTM) {
 				insertCallToAccessFunctionSequential(access, execute);
 			} else {
-				insertCallToAccessFunctionBeforeTM(bTS, access, execute, funArgs);
+				insertCallToAccessFunctionBeforeTM(bTS, access, execute, funArgs, DT);
 			}
 			return true;
 
@@ -690,8 +702,6 @@ protected:
 				 getParent()->getArgumentList();
 			for (ilist_iterator<Argument> b = ArgLst.begin(), e = ArgLst.end();
 													b != e; ++b) {
-
-				//TODO: very fragile
 				if ((cast<GetElementPtrInst> (LInst->getPointerOperand()))
 									->getPointerOperand() == &(*b)){
 					loadToVal[LInst] = &(*b);
@@ -765,8 +775,9 @@ protected:
 									 funArgs, BFStoloadToVal[I->getParent()->getParent()]);
 				}
 
-				for(BasicBlock * BB: vBlockWithoutBTS)
+				for(BasicBlock * BB: vBlockWithoutBTS) {
 					nvF.insert(BB->getParent());
+				}
 			}
 			vF.clear();
 			for(Function * F: nvF)

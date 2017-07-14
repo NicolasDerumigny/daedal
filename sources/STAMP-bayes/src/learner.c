@@ -383,7 +383,7 @@ createTaskList (void* argPtr)
 
     } /* foreach variable */
 
-    TM_BEGIN();
+    TM_BEGIN(0);
     float globalBaseLogLikelihood =
         TM_SHARED_READ_F(learnerPtr->baseLogLikelihood);
     TM_SHARED_WRITE_F(learnerPtr->baseLogLikelihood,
@@ -478,7 +478,7 @@ createTaskList (void* argPtr)
             taskPtr->fromId = bestLocalIndex;
             taskPtr->toId = v;
             taskPtr->score = score;
-            TM_BEGIN();
+            TM_BEGIN(1);
             status = TMLIST_INSERT(taskListPtr, (void*)taskPtr);
             TM_END();
             assert(status);
@@ -1191,7 +1191,7 @@ learnStructure (void* argPtr)
     while (1) {
 
         learner_task_t* taskPtr;
-        TM_BEGIN();
+        TM_BEGIN(2);
         taskPtr = TMpopTask(TM_ARG  taskListPtr);
         TM_END();
         if (taskPtr == NULL) {
@@ -1204,7 +1204,7 @@ learnStructure (void* argPtr)
 
         bool_t isTaskValid;
 
-        TM_BEGIN();
+        TM_BEGIN(3);
 
         /*
          * Check if task is still valid
@@ -1269,7 +1269,7 @@ learnStructure (void* argPtr)
             switch (op) {
                 float newBaseLogLikelihood;
                 case OPERATION_INSERT: {
-                    TM_BEGIN();
+                    TM_BEGIN(4);
                     TMpopulateQueryVectors(TM_ARG
                                            netPtr,
                                            toId,
@@ -1290,7 +1290,7 @@ learnStructure (void* argPtr)
                     TM_SHARED_WRITE_F(localBaseLogLikelihoods[toId],
                                       newBaseLogLikelihood);
                     TM_END();
-                    TM_BEGIN();
+                    TM_BEGIN(5);
                     long numTotalParent = (long)TM_SHARED_READ(learnerPtr->numTotalParent);
                     TM_SHARED_WRITE(learnerPtr->numTotalParent, (numTotalParent + 1));
                     TM_END();
@@ -1298,7 +1298,7 @@ learnStructure (void* argPtr)
                 }
 #ifdef LEARNER_TRY_REMOVE
                 case OPERATION_REMOVE: {
-                    TM_BEGIN();
+                    TM_BEGIN(6);
                     TMpopulateQueryVectors(TM_ARG
                                            netPtr,
                                            fromId,
@@ -1319,7 +1319,7 @@ learnStructure (void* argPtr)
                     TM_SHARED_WRITE_F(localBaseLogLikelihoods[fromId],
                                       newBaseLogLikelihood);
                     TM_END();
-                    TM_BEGIN();
+                    TM_BEGIN(7);
                     long numTotalParent = (long)TM_SHARED_READ(learnerPtr->numTotalParent);
                     TM_SHARED_WRITE(learnerPtr->numTotalParent, (numTotalParent - 1));
                     TM_END();
@@ -1328,7 +1328,7 @@ learnStructure (void* argPtr)
 #endif /* LEARNER_TRY_REMOVE */
 #ifdef LEARNER_TRY_REVERSE
                 case OPERATION_REVERSE: {
-                    TM_BEGIN();
+                    TM_BEGIN(8);
                     TMpopulateQueryVectors(TM_ARG
                                            netPtr,
                                            fromId,
@@ -1350,7 +1350,7 @@ learnStructure (void* argPtr)
                                       newBaseLogLikelihood);
                     TM_END();
 
-                    TM_BEGIN();
+                    TM_BEGIN(9);
                     TMpopulateQueryVectors(TM_ARG
                                            netPtr,
                                            toId,
@@ -1387,7 +1387,7 @@ learnStructure (void* argPtr)
         float baseLogLikelihood;
         long numTotalParent;
 
-        TM_BEGIN();
+        TM_BEGIN(10);
         float oldBaseLogLikelihood =
             (float)TM_SHARED_READ_F(learnerPtr->baseLogLikelihood);
         float newBaseLogLikelihood = oldBaseLogLikelihood + deltaLogLikelihood;
@@ -1416,7 +1416,7 @@ learnStructure (void* argPtr)
         arg.basePenalty       = basePenalty;
         arg.baseLogLikelihood = baseLogLikelihood;
 
-        TM_BEGIN();
+        TM_BEGIN(11);
         newTask = TMfindBestInsertTask(TM_ARG  &arg);
         TM_END();
 
@@ -1427,7 +1427,7 @@ learnStructure (void* argPtr)
         }
 
 #ifdef LEARNER_TRY_REMOVE
-        TM_BEGIN();
+        TM_BEGIN(12);
         newTask = TMfindBestRemoveTask(TM_ARG  &arg);
         TM_END();
 
@@ -1439,7 +1439,7 @@ learnStructure (void* argPtr)
 #endif /* LEARNER_TRY_REMOVE */
 
 #ifdef LEARNER_TRY_REVERSE
-        TM_BEGIN();
+        TM_BEGIN(13);
         newTask = TMfindBestReverseTask(TM_ARG  &arg);
         TM_END();
 
@@ -1453,7 +1453,7 @@ learnStructure (void* argPtr)
         if (bestTask.toId != -1) {
             learner_task_t* tasks = learnerPtr->tasks;
             tasks[toId] = bestTask;
-            TM_BEGIN();
+            TM_BEGIN(14);
             TMLIST_INSERT(taskListPtr, (void*)&tasks[toId]);
             TM_END();
 #ifdef TEST_LEARNER

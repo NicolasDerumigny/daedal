@@ -85,6 +85,7 @@ static void*             global_argPtr          = NULL;
 static volatile bool_t   global_doShutdown      = FALSE;
 
 THREAD_MUTEX_T global_rtm_mutex;
+int g_failures[15] = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
 
 /* =============================================================================
  * threadWait

@@ -157,7 +157,7 @@
 #  include <stdio.h>
 
 #  define MAIN(argc, argv)              int main (int argc, char** argv)
-#  define MAIN_RETURN(val)              return val
+#  define MAIN_RETURN(val)              for (int i=0;i<15;++i)printf("Fails: %i\n", g_failures[i]); return val
 
 #  define GOTO_SIM()                    /* nothing */
 #  define GOTO_REAL()                   /* nothing */
@@ -324,12 +324,13 @@
 
 #    ifdef OLD_RTM_MACROSES
 
-#       define TM_BEGIN()                   {                      \
+#       define TM_BEGIN(i)                   {                      \
                                               __label__ failure;   \
                                               int tries = 4;       \
                                               failure:             \
                                               tries --;            \
                                               if (tries <= 0){     \
+                                                  g_failures[i] ++;    \
                                                   pthread_mutex_lock(&global_rtm_mutex); \
                                               }else{               \
                                                   unsigned status = _xbegin(); \

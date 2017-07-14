@@ -165,7 +165,7 @@ work (void* argPtr)
             membership[i] = index;
 
             /* Update new cluster centers : sum of objects located within */
-            TM_BEGIN();
+            TM_BEGIN(0);
             TM_SHARED_WRITE(*new_centers_len[index],
                             TM_SHARED_READ(*new_centers_len[index]) + 1);
 #           pragma clang loop vectorize_width(1337)
@@ -180,7 +180,7 @@ work (void* argPtr)
 
         /* Update task queue */
         if (start + CHUNK < npoints) {
-            TM_BEGIN();
+            TM_BEGIN(1);
             start = (int)TM_SHARED_READ(global_i);
             TM_SHARED_WRITE(global_i, (start + CHUNK));
             TM_END();
@@ -189,7 +189,7 @@ work (void* argPtr)
         }
     }
 
-    TM_BEGIN();
+    TM_BEGIN(2);
     TM_SHARED_WRITE_F(global_delta, TM_SHARED_READ_F(global_delta) + delta);
     TM_END();
 

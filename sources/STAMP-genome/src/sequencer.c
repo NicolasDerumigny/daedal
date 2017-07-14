@@ -287,7 +287,7 @@ sequencer_run (void* argPtr)
     i_stop = numSegment;
 #endif /* !(HTM || STM) */
     for (i = i_start; i < i_stop; i+=CHUNK_STEP1) {
-        TM_BEGIN();
+        TM_BEGIN(0);
         {
             long ii;
             long ii_stop = MIN(i_stop, (i+CHUNK_STEP1));
@@ -367,7 +367,7 @@ sequencer_run (void* argPtr)
             bool_t status;
 
             /* Find an empty constructEntries entry */
-            TM_BEGIN();
+            TM_BEGIN(1);
 #           pragma clang loop vectorize_width(1337)
             while (((void*)TM_SHARED_READ_P(constructEntries[entryIndex].segment)) != NULL) {
                 entryIndex = (entryIndex + 1) % numUniqueSegment; /* look for empty */
@@ -394,7 +394,7 @@ sequencer_run (void* argPtr)
             for (j = 1; j < segmentLength; j++) {
                 startHash = (ulong_t)segment[j-1] +
                             (startHash << 6) + (startHash << 16) - startHash;
-                TM_BEGIN();
+                TM_BEGIN(2);
                 status = TMTABLE_INSERT(startHashToConstructEntryTables[j],
                                         (ulong_t)startHash,
                                         (void*)constructEntryPtr );
@@ -407,7 +407,7 @@ sequencer_run (void* argPtr)
              */
             startHash = (ulong_t)segment[j-1] +
                         (startHash << 6) + (startHash << 16) - startHash;
-            TM_BEGIN();
+            TM_BEGIN(3);
             status = TMTABLE_INSERT(hashToConstructEntryTable,
                                     (ulong_t)startHash,
                                     (void*)constructEntryPtr);
@@ -475,7 +475,7 @@ sequencer_run (void* argPtr)
                 long newLength = 0;
 
                 /* endConstructEntryPtr is local except for properties startPtr/endPtr/length */
-                TM_BEGIN();
+                TM_BEGIN(4);
 
                 /* Check if matches */
                 if (TM_SHARED_READ(startConstructEntryPtr->isStart) &&

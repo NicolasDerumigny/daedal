@@ -49,12 +49,14 @@ using namespace std;
 
 void insertCallToAccessFunction(Function *F, Function *cF);
 void insertCallToAccessFunctionSequential(Function *F, Function *cF);
-void insertCallToAccessFunctionBeforeTM(set<BasicBlock *> bTS,	Function * access, 
-		 Function * execute, map<BasicBlock *, vector<Value *>> funArgs);
+void insertCallToAccessFunctionBeforeTM(set<BasicBlock *> bTS,	
+	Function * access, Function * execute, map<BasicBlock *, 
+	vector<Value *>> funArgs, DominatorTree * DT);
 void insertCallToPAPI(CallInst *access, CallInst *execute);
 void insertCallOrigToPAPI(CallInst *execute);
 void insertCallInitPAPI(CallInst *mainF);
 void getInsideTM(BasicBlock * BB, set<Instruction *> & InsideTM);
+Instruction* getInsertPoint(Instruction* I, DominatorTree * DT);
 Instruction* isBeginTM(BasicBlock* BB);
 Instruction* isEndTMOrLock(BasicBlock* BB);
 Instruction* isAssertFail(BasicBlock* BB);
@@ -186,7 +188,8 @@ void insertCallToAccessFunctionBeforeTM(
 	set<BasicBlock *> bTS,
 	Function * access,
 	Function * execute,
-	map<BasicBlock *, vector<Value *>> funArgs) {
+	map<BasicBlock *, vector<Value *>> funArgs,
+	DominatorTree * DT) {
 	
 	CallInst *I;
 	BasicBlock *b;
@@ -201,9 +204,8 @@ void insertCallToAccessFunctionBeforeTM(
 	//Place the accesses
 	for(BasicBlock * BB : bTS) {
 		IRBuilder<> build(BB);
-		build.SetInsertPoint(BB->BasicBlock::getFirstNonPHI());
+		build.SetInsertPoint(getInsertPoint(isBeginTM(BB), DT));
 		CallInst * ci = build.CreateCall(access, ArrayRef <Value *> (funArgs[BB]));
-		//TODO: number of arguments?
 	}
 }
 
@@ -503,6 +505,35 @@ void getBeginTransactionalSection(list<LoadInst * > & toHoist, CallInst * I,
 	}
 }
 
+Instruction* getInsertPoint(Instruction* I, DominatorTree * DT) {
+	if(isa<CallInst>(I) && cast<CallInst> (I) -> getCalledFunction() 
+			 && cast<CallInst> (I) -> getCalledFunction() ->	hasName()
+			 && cast<CallInst> (I) -> getCalledFunction() -> getName() == "beginTransaction")
+		return I;
+	BasicBlock * BB = I->getParent();
+
+	BasicBlock * Test_tries = BB->getSinglePredecessor();
+
+	if (!BB) {
+		errs()<<"FATAL ERROR: malformed TM_BEGIN()\n";
+		exit(-1);
+	}
+
+	int parent=0;
+	BasicBlock * Insert_point;
+	for (pred_iterator SI = pred_begin(Test_tries), E = pred_end(Test_tries); SI != E; ++SI) {
+		if (DT->dominates((*SI)->getTerminator(),BB)) {
+			++parent;
+			Insert_point = *SI;
+		}
+	}
+	if(parent != 1) {
+		errs()<<"FATAL ERROR: too many parents for TM_BEGIN()\n";
+		exit(-1);
+	}
+
+	return Insert_point->getTerminator();
+}
 
 Instruction* isBeginTM(BasicBlock* BB) {
 	for (BasicBlock::iterator I = BB->begin(), E = BB->end(); I != E; ++I){
@@ -515,13 +546,12 @@ Instruction* isBeginTM(BasicBlock* BB) {
 			 && cast<CallInst> (I) -> getCalledFunction() ->	hasName()
 			 && cast<CallInst> (I) -> getCalledFunction() -> getName() == "beginTransaction") 
 					return &(*I);
-		
 		}
-
-
 	}
 	return nullptr;
 }
+
+
 
 Instruction* isEndTMOrLock(BasicBlock* BB) {
 	for (BasicBlock::iterator I = BB->begin(), E = BB->end(); I != E; ++I) {
@@ -575,25 +605,6 @@ Instruction* isAssertFail(BasicBlock* BB) {
 	return nullptr;
 }
 
-//initialize toKeepFun for all possible values
-/*void addDeclaredValues(
-	BasicBlock * aBB,
-	map<Value*, pair< set<Value*>, list<Instruction *>>> & toKeepFun) {
-	
-	Instruction * Beg = isBeginTM(aBB), * End = isEndTMOrLock(aBB);
-	bool active = (Beg == nullptr);
-
-	for (BasicBlock::iterator I = aBB->begin(), E = aBB->end(); I != E; ++I) {
-		if (&(*I) == End)
-			return;
-		if (active) {
-			toKeepFun[&(*I)] = pair<set <Value*>, list<Instruction *>>();
-			toKeepFun[&(*I)].first = set <Value*> ();
-		} else {
-			active = (&(*I) == Beg);
-		}
-	}
-}*/
 
 void getCallers(Module * M, Function * F, vector<CallInst * > & vF){
 	//Gather in vF the functions inside which there is a call
