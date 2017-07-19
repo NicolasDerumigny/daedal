@@ -157,7 +157,13 @@
 #  include <stdio.h>
 
 #  define MAIN(argc, argv)              int main (int argc, char** argv)
-#  define MAIN_RETURN(val)              for (int i=0;i<15;++i)printf("Fails: %i\n", g_failures[i]); return val
+#  define MAIN_RETURN(val)              for (int i=0;i<15;++i)printf("Locks: %i\n", g_locks[i]);          \
+                                        for (int i=0;i<15;++i)printf("Commits: %i\n", g_succeed[i]);      \
+                                        for (int i=0;i<15;++i) {                \
+                                          printf("Aborts: %i\n", g_aborts[i]);  \
+                                          for (int j=0;j<6;++j)printf("Reason: %i\n", abort_reasons[i][j]);\
+                                        }                                       \
+                                        return val
 
 #  define GOTO_SIM()                    /* nothing */
 #  define GOTO_REAL()                   /* nothing */
@@ -324,25 +330,30 @@
 
 #    ifdef OLD_RTM_MACROSES
 
-#       define TM_BEGIN(i)                   {                      \
+#       define TM_BEGIN(i)                   {                     \
                                               __label__ failure;   \
                                               int tries = 4;       \
                                               failure:             \
                                               tries --;            \
-                                              if (tries <= 0){     \
-                                                  g_failures[i] ++;    \
-                                                  pthread_mutex_lock(&global_rtm_mutex); \
-                                              }else{               \
-                                                  unsigned status = _xbegin(); \
-                                                  if (status != XBEGIN_STARTED)\
-                                                      goto failure;\
+                                              if (tries <= 0) {    \
+                                                pthread_mutex_lock(&global_rtm_mutex); \
+                                                ++g_locks[i];      \
+                                              } else {                         \
+                                                unsigned status = _xbegin();   \
+                                                update_reasons(status, i);     \
+                                                if (status != XBEGIN_STARTED) {\
+                                                  goto failure;                \
+                                                }                              \
+                                                if (global_rtm_mutex.__data.__owner != 0)\
+                                                  _xabort(0);\
                                               }
                                                        
                                               
 
-#       define TM_END()                       if (tries > 0)       \
+#       define TM_END(i)                      if (tries > 0) {     \
                                                 _xend();           \
-                                              else                 \
+                                                ++g_succeed[i];    \
+                                              } else               \
                                                 pthread_mutex_unlock(&global_rtm_mutex); \
                                             };
 

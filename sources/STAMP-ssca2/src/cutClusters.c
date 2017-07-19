@@ -532,7 +532,7 @@ cutClusters (void* argPtr)
         TM_BEGIN(5);
         long tmp_cliqueSize = (long)TM_SHARED_READ(global_cliqueSize);
         TM_SHARED_WRITE(global_cliqueSize, (tmp_cliqueSize + cliqueSize));
-        TM_END();
+        TM_END(5);
 
         thread_barrier_wait();
 
@@ -604,7 +604,7 @@ cutClusters (void* argPtr)
     TM_BEGIN(6);
     long tmp_cutSetIndex = (long)TM_SHARED_READ(global_cutSetIndex);
     TM_SHARED_WRITE(global_cutSetIndex, (tmp_cutSetIndex + cutSetIndex));
-    TM_END();
+    TM_END(6);
 
     thread_barrier_wait();
 

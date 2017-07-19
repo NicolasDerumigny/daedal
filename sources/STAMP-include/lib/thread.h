@@ -134,7 +134,11 @@ typedef struct thread_barrier {
 } thread_barrier_t;
 
 extern THREAD_MUTEX_T global_rtm_mutex;
-extern int g_failures[15];
+extern int g_locks[15];
+extern int g_aborts[15];
+extern int g_succeed[15];
+extern int abort_reasons[15][6];
+void update_reasons(unsigned status, int i);
 
 /* =============================================================================
  * thread_startup

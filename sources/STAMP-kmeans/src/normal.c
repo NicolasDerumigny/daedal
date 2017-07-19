@@ -175,7 +175,7 @@ work (void* argPtr)
                     (TM_SHARED_READ_F(new_centers[index][j]) + feature[i][j])
                 );
             }
-            TM_END();
+            TM_END(0);
         }
 
         /* Update task queue */
@@ -183,7 +183,7 @@ work (void* argPtr)
             TM_BEGIN(1);
             start = (int)TM_SHARED_READ(global_i);
             TM_SHARED_WRITE(global_i, (start + CHUNK));
-            TM_END();
+            TM_END(1);
         } else {
             break;
         }
@@ -191,7 +191,7 @@ work (void* argPtr)
 
     TM_BEGIN(2);
     TM_SHARED_WRITE_F(global_delta, TM_SHARED_READ_F(global_delta) + delta);
-    TM_END();
+    TM_END(2);
 
     TM_THREAD_EXIT();
 }

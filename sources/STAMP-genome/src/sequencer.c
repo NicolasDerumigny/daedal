@@ -299,7 +299,7 @@ sequencer_run (void* argPtr)
                                    segment);
             } /* ii */
         }
-        TM_END();
+        TM_END(0);
     }
 
     thread_barrier_wait();
@@ -374,7 +374,7 @@ sequencer_run (void* argPtr)
             }
             constructEntryPtr = &constructEntries[entryIndex];
             TM_SHARED_WRITE_P(constructEntryPtr->segment, segment);
-            TM_END();
+            TM_END(1);
             entryIndex = (entryIndex + 1) % numUniqueSegment;
 
             /*
@@ -398,7 +398,7 @@ sequencer_run (void* argPtr)
                 status = TMTABLE_INSERT(startHashToConstructEntryTables[j],
                                         (ulong_t)startHash,
                                         (void*)constructEntryPtr );
-                TM_END();
+                TM_END(2);
                 assert(status);
             }
 
@@ -411,7 +411,7 @@ sequencer_run (void* argPtr)
             status = TMTABLE_INSERT(hashToConstructEntryTable,
                                     (ulong_t)startHash,
                                     (void*)constructEntryPtr);
-            TM_END();
+            TM_END(3);
             assert(status);
         }
     }
@@ -513,7 +513,7 @@ sequencer_run (void* argPtr)
                     TM_SHARED_WRITE(endConstructEntry_startPtr->length, newLength);
                 } /* if (matched) */
 
-                TM_END();
+                TM_END(4);
 
                 if (!endInfoEntries[entryIndex].isEnd) { /* if there was a match */
                     break;

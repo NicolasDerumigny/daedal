@@ -15,7 +15,8 @@ LINK=$(LLVM_BIN)/llvm-link
 OPT=$(LLVM_BIN)/opt
 CLANG=$(LLVM_BIN)/clang 
 CLANGCPP=$(LLVM_BIN)/clang++
-CFLAGS += -Wno-override-module
+CFLAGS += -mrtm -Wno-override-module
+CXXFLAGS += -mrtm -Wno-override-module
 
 DVFS_FLAGS=$(COMPILER_LIB)/libDAE_prof_ST.a -lcpufreq
 

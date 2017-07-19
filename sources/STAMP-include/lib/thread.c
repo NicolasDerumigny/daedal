@@ -85,7 +85,19 @@ static void*             global_argPtr          = NULL;
 static volatile bool_t   global_doShutdown      = FALSE;
 
 THREAD_MUTEX_T global_rtm_mutex;
-int g_failures[15] = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
+int g_locks[15] = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
+int g_aborts[15] = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
+int g_succeed[15] = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
+int abort_reasons[15][6] = {{0,0,0,0,0,0}, {0,0,0,0,0,0}, {0,0,0,0,0,0}, {0,0,0,0,0,0}, {0,0,0,0,0,0}, {0,0,0,0,0,0}, {0,0,0,0,0,0}, {0,0,0,0,0,0}, {0,0,0,0,0,0}, {0,0,0,0,0,0}, {0,0,0,0,0,0}, {0,0,0,0,0,0}, {0,0,0,0,0,0}, {0,0,0,0,0,0}, {0,0,0,0,0,0}};
+void 
+update_reasons(unsigned status, int i) {
+  if (status == (~0u))
+    return;
+  ++g_aborts[i];
+  for (int k=0; k<6;++k)
+    abort_reasons[i][k]+=(status >> k) & 1;
+}
+
 
 /* =============================================================================
  * threadWait

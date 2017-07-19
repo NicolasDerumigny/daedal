@@ -44,29 +44,27 @@ cd bin
 >&2 echo TM-FULL-DAE
 ./STAMP-genome.tm-full-dae -g16384 -s64 -n16777216 -t4
 
-
-#TODO : number of threads in intruder assert fail
 >&2 echo
 >&2 echo intruder default
 >&2 echo ORG
-./STAMP-intruder.original
+./STAMP-intruder.original -t4
 
 >&2 echo TM-ARG
-./STAMP-intruder.tm-arg
+./STAMP-intruder.tm-arg -t4
 
 >&2 echo TM-FULL-DAE
-./STAMP-intruder.tm-full-dae
+./STAMP-intruder.tm-full-dae -t4
 
 >&2 echo
 >&2 echo intruder readme
 >&2 echo ORG
-./STAMP-intruder.original -a10 -l128 -n262144 -s1
+./STAMP-intruder.original -a10 -l128 -n262144 -s1 -t4
 
 >&2 echo TM-ARG
-./STAMP-intruder.tm-arg -a10 -l128 -n262144 -s1
+./STAMP-intruder.tm-arg -a10 -l128 -n262144 -s1 -t4
 
 >&2 echo TM-FULL-DAE
-./STAMP-intruder.tm-full-dae -a10 -l128 -n262144 -s1
+./STAMP-intruder.tm-full-dae -a10 -l128 -n262144 -s1 -t4
 
 
 >&2 echo

@@ -41,8 +41,8 @@
 using namespace llvm;
 using namespace std;
 
-#define TM_BEGIN_ASM ".byte 0xc7,0xf8 ; .long 0"
-#define TM_END_ASM ".byte 0x0f,0x01,0xd5"
+#define TM_BEGIN_X86 "llvm.x86.xbegin"
+#define TM_END_X86 "llvm.x86.xend"
 
 #ifndef CallingDAE_
 #define CallingDAE_
@@ -512,23 +512,17 @@ Instruction* getInsertPoint(Instruction* I, DominatorTree * DT) {
 		return I;
 	BasicBlock * BB = I->getParent();
 
-	BasicBlock * Test_tries = BB->getSinglePredecessor();
-
-	if (!BB) {
-		errs()<<"FATAL ERROR: malformed TM_BEGIN()\n";
-		exit(-1);
-	}
-
 	int parent=0;
 	BasicBlock * Insert_point;
-	for (pred_iterator SI = pred_begin(Test_tries), E = pred_end(Test_tries); SI != E; ++SI) {
+	for (pred_iterator SI = pred_begin(BB), E = pred_end(BB); SI != E; ++SI) {
 		if (DT->dominates((*SI)->getTerminator(),BB)) {
 			++parent;
 			Insert_point = *SI;
 		}
 	}
 	if(parent != 1) {
-		errs()<<"FATAL ERROR: too many parents for TM_BEGIN()\n";
+		errs()<<"FATAL ERROR: too many parents for TM_BEGIN block\n";
+		BB->print(errs());
 		exit(-1);
 	}
 
@@ -537,15 +531,14 @@ Instruction* getInsertPoint(Instruction* I, DominatorTree * DT) {
 
 Instruction* isBeginTM(BasicBlock* BB) {
 	for (BasicBlock::iterator I = BB->begin(), E = BB->end(); I != E; ++I){
-		if(isa<CallInst>(I) && cast<CallInst>(I) -> isInlineAsm()) {
-			if(isa<InlineAsm> (cast<CallInst>(I)->getCalledValue()) &&
-				cast<InlineAsm>(cast<CallInst>(I)->getCalledValue())->getAsmString() == TM_BEGIN_ASM)
-				return &(*I);
-		} else {
-			if(isa<CallInst>(I) && cast<CallInst> (I) -> getCalledFunction() 
+		if(isa<CallInst>(I) && cast<CallInst> (I) -> getCalledFunction() 
 			 && cast<CallInst> (I) -> getCalledFunction() ->	hasName()
-			 && cast<CallInst> (I) -> getCalledFunction() -> getName() == "beginTransaction") 
-					return &(*I);
+			 && cast<CallInst> (I) -> getCalledFunction() -> getName() == TM_BEGIN_X86) {
+			return &(*I);
+		} else 	if(isa<CallInst>(I) && cast<CallInst> (I) -> getCalledFunction() 
+			 && cast<CallInst> (I) -> getCalledFunction() ->	hasName()
+			 && cast<CallInst> (I) -> getCalledFunction() -> getName() == "beginTransaction") {
+			return &(*I);
 		}
 	}
 	return nullptr;
@@ -555,17 +548,14 @@ Instruction* isBeginTM(BasicBlock* BB) {
 
 Instruction* isEndTMOrLock(BasicBlock* BB) {
 	for (BasicBlock::iterator I = BB->begin(), E = BB->end(); I != E; ++I) {
-		if(isa<CallInst>(I) && cast<CallInst>(I) -> isInlineAsm()) {
-			if(isa<InlineAsm> (cast<CallInst>(I)->getCalledValue()) &&
-				cast<InlineAsm>(cast<CallInst>(I)->getCalledValue())->getAsmString() == TM_END_ASM)
-				 return &(*I);
-		} else {
+		if( isa<CallInst>(I) && ! (cast<CallInst>(I) -> isInlineAsm())) {
 			if (auto* CstExpr = dyn_cast<ConstantExpr>(I->getOperand(0))) {
 				if (CstExpr->isCast()) {
 					Value * Fun = CstExpr->getOperand(0);
 					if (Fun -> getName() == "pthread_mutex_unlock" ||
 					Fun -> getName() == "pthread_mutex_lock" ||
-					Fun -> getName() == "commitTransaction")
+					Fun -> getName() == "commitTransaction" ||
+					Fun -> getName() == TM_END_X86)
 						return &(*I);
 					// if this is a call bitcast, get the real function and figure out
 					continue;
@@ -585,6 +575,11 @@ Instruction* isEndTMOrLock(BasicBlock* BB) {
 			if(isa<CallInst>(I) && cast<CallInst> (I) -> getCalledFunction() -> 
 				hasName() && cast<CallInst> (I) -> getCalledFunction() -> 
 				getName() == "commitTransaction") {
+				return &(*I);
+			}
+			if(isa<CallInst>(I) && cast<CallInst> (I) -> getCalledFunction() -> 
+				hasName() && cast<CallInst> (I) -> getCalledFunction() -> 
+				getName() == TM_END_X86) {
 				return &(*I);
 			}
 		}

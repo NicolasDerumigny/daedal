@@ -124,7 +124,7 @@ getStartLists (void* argPtr)
     if (maxWeight > tmp_maxWeight) {
         TM_SHARED_WRITE(global_maxWeight, maxWeight);
     }
-    TM_END();
+    TM_END(0);
 
     thread_barrier_wait();
 

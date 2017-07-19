@@ -382,7 +382,7 @@ router_solve (void* argPtr)
         } else {
             coordinatePairPtr = (pair_t*)TMQUEUE_POP(workQueuePtr);
         }
-        TM_END();
+        TM_END(0);
         if (coordinatePairPtr == NULL) {
             break;
         }
@@ -408,7 +408,7 @@ router_solve (void* argPtr)
                 TM_LOCAL_WRITE(success, TRUE);
             }
         }
-        TM_END();
+        TM_END(1);
 
         if (success) {
             bool_t status = PVECTOR_PUSHBACK(myPathVectorPtr,
@@ -424,7 +424,7 @@ router_solve (void* argPtr)
     list_t* pathVectorListPtr = routerArgPtr->pathVectorListPtr;
     TM_BEGIN(2);
     TMLIST_INSERT(pathVectorListPtr, (void*)myPathVectorPtr);
-    TM_END();
+    TM_END(2);
 
     PGRID_FREE(myGridPtr);
     PQUEUE_FREE(myExpansionQueuePtr);

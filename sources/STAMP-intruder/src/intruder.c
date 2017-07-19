@@ -198,7 +198,7 @@ processPackets (void* argPtr)
         char* bytes;
         TM_BEGIN(0);
         bytes = TMSTREAM_GETPACKET(streamPtr);
-        TM_END();
+        TM_END(0);
         if (!bytes) {
             break;
         }
@@ -211,7 +211,7 @@ processPackets (void* argPtr)
         error = TMDECODER_PROCESS(decoderPtr,
                                   bytes,
                                   (PACKET_HEADER_LENGTH + packetPtr->length));
-        TM_END();
+        TM_END(1);
         if (error) {
             /*
              * Currently, stream_generate() does not create these errors.
@@ -225,7 +225,7 @@ processPackets (void* argPtr)
         long decodedFlowId;
         TM_BEGIN(2);
         data = TMDECODER_GETCOMPLETE(decoderPtr, &decodedFlowId);
-        TM_END();
+        TM_END(2);
         if (data) {
             error_t error = PDETECTOR_PROCESS(detectorPtr, data);
             P_FREE(data);

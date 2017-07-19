@@ -206,7 +206,7 @@ process ()
 
         TM_BEGIN(0);
         elementPtr = TMHEAP_REMOVE(workHeapPtr);
-        TM_END();
+        TM_END(0);
         if (elementPtr == NULL) {
             break;
         }
@@ -214,7 +214,7 @@ process ()
         bool_t isGarbage;
         TM_BEGIN(1);
         isGarbage = TMELEMENT_ISGARBAGE(elementPtr);
-        TM_END();
+        TM_END(1);
         if (isGarbage) {
             /*
              * Handle delayed deallocation
@@ -228,12 +228,12 @@ process ()
         TM_BEGIN(2);
         PREGION_CLEARBAD(regionPtr);
         numAdded = TMREGION_REFINE(regionPtr, elementPtr, meshPtr);
-        TM_END();
+        TM_END(2);
 
         TM_BEGIN(3);
         TMELEMENT_SETISREFERENCED(elementPtr, FALSE);
         isGarbage = TMELEMENT_ISGARBAGE(elementPtr);
-        TM_END();
+        TM_END(3);
         if (isGarbage) {
             /*
              * Handle delayed deallocation
@@ -245,7 +245,7 @@ process ()
 
         TM_BEGIN(4);
         TMREGION_TRANSFERBAD(regionPtr, workHeapPtr);
-        TM_END();
+        TM_END(4);
 
         numProcess++;
 
@@ -256,7 +256,7 @@ process ()
                     TM_SHARED_READ(global_totalNumAdded) + totalNumAdded);
     TM_SHARED_WRITE(global_numProcess,
                     TM_SHARED_READ(global_numProcess) + numProcess);
-    TM_END();
+    TM_END(5);
 
     PREGION_FREE(regionPtr);
 
