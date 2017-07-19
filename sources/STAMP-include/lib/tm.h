@@ -299,7 +299,7 @@
 #  define TM_ARGDECL_ALONE              /* nothing */
 #  define TM_CALLABLE                   /* nothing */
 
-#  define TM_STARTUP(numThread)         CPUID_RTM_CHECK; THREAD_MUTEX_INIT(global_rtm_mutex);
+#  define TM_STARTUP(numThread)         CPUID_RTM_CHECK; THREAD_SPIN_INIT(global_rtm_spin);
 #  define TM_SHUTDOWN()                 /* nothing */
 
 #  define TM_THREAD_ENTER()             /* nothing */
@@ -336,7 +336,7 @@
                                               failure:             \
                                               tries --;            \
                                               if (tries <= 0) {    \
-                                                pthread_mutex_lock(&global_rtm_mutex); \
+                                                THREAD_SPIN_LOCK(global_rtm_spin); \
                                                 ++g_locks[i];      \
                                               } else {                         \
                                                 unsigned status = _xbegin();   \
@@ -344,7 +344,7 @@
                                                 if (status != XBEGIN_STARTED) {\
                                                   goto failure;                \
                                                 }                              \
-                                                if (global_rtm_mutex.__data.__owner != 0)\
+                                                if ((int) global_rtm_spin != 1)\
                                                   _xabort(0);\
                                               }
                                                        
@@ -354,7 +354,7 @@
                                                 _xend();           \
                                                 ++g_succeed[i];    \
                                               } else               \
-                                                pthread_mutex_unlock(&global_rtm_mutex); \
+                                                THREAD_SPIN_UNLOCK(global_rtm_spin); \
                                             };
 
 #    else //OLD_RTM_MACROSES
@@ -363,14 +363,14 @@
                                               XFAIL(failure);      \
                                               tries --;            \
                                               if (tries <= 0)      \
-                                                  pthread_mutex_lock(&global_rtm_mutex); \
+                                                  THREAD_SPIN_LOCK(global_rtm_spin); \
                                               else XBEGIN(failure);
                                               
 
 #       define TM_END()                      if (tries > 0)        \
                                                 XEND();            \
                                              else                  \
-                                                pthread_mutex_unlock(&global_rtm_mutex); \
+                                                THREAD_SPIN_UNLOCK(global_rtm_spin); \
                                             };
 #   endif //OLD_RTM_MACROSES
 

@@ -105,6 +105,12 @@ extern "C" {
 #define THREAD_MUTEX_LOCK(lock)             pthread_mutex_lock(&(lock))
 #define THREAD_MUTEX_UNLOCK(lock)           pthread_mutex_unlock(&(lock))
 
+#define THREAD_SPIN_T                      pthread_spinlock_t
+#define THREAD_SPIN_INIT(lock)             pthread_spin_init(&(lock), 0)
+#define THREAD_SPIN_LOCK(lock)             pthread_spin_lock(&(lock))
+#define THREAD_SPIN_UNLOCK(lock)           pthread_spin_unlock(&(lock))
+
+
 #define THREAD_COND_T                       pthread_cond_t
 #define THREAD_COND_INIT(cond)              pthread_cond_init(&(cond), NULL)
 #define THREAD_COND_SIGNAL(cond)            pthread_cond_signal(&(cond))
@@ -133,7 +139,7 @@ typedef struct thread_barrier {
     long numThread;
 } thread_barrier_t;
 
-extern THREAD_MUTEX_T global_rtm_mutex;
+extern THREAD_SPIN_T global_rtm_spin;
 extern int g_locks[15];
 extern int g_aborts[15];
 extern int g_succeed[15];

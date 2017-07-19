@@ -390,6 +390,7 @@ TMdecoder_process (TM_ARGDECL  decoder_t* decoderPtr, char* bytes, long numByte)
                     if (fragmentPtr->fragmentId != i) {
                         status = TMMAP_REMOVE(fragmentedMapPtr, (void*)flowId);
                         assert(status);
+                        __builtin_trap();//debug only
                         return ERROR_INCOMPLETE; /* should be sequential */
                     }
                     numByte += fragmentPtr->length;

@@ -555,6 +555,8 @@ Instruction* isEndTMOrLock(BasicBlock* BB) {
 					if (Fun -> getName() == "pthread_mutex_unlock" ||
 					Fun -> getName() == "pthread_mutex_lock" ||
 					Fun -> getName() == "commitTransaction" ||
+					Fun -> getName() == "pthread_spin_unlock" ||
+					Fun -> getName() == "pthread_spin_lock" ||
 					Fun -> getName() == TM_END_X86)
 						return &(*I);
 					// if this is a call bitcast, get the real function and figure out
@@ -570,6 +572,16 @@ Instruction* isEndTMOrLock(BasicBlock* BB) {
 			if(isa<CallInst>(I) && cast<CallInst> (I) -> getCalledFunction() -> 
 				hasName() && cast<CallInst> (I) -> getCalledFunction() -> 
 				getName() == "pthread_mutex_lock") {
+				return &(*I);
+			}
+			if(isa<CallInst>(I) && cast<CallInst> (I) -> getCalledFunction() ->
+			 hasName() && cast<CallInst> (I) -> getCalledFunction() 
+			 -> getName() == "pthread_spin_unlock") {
+				return &(*I);
+			}
+			if(isa<CallInst>(I) && cast<CallInst> (I) -> getCalledFunction() -> 
+				hasName() && cast<CallInst> (I) -> getCalledFunction() -> 
+				getName() == "pthread_spin_lock") {
 				return &(*I);
 			}
 			if(isa<CallInst>(I) && cast<CallInst> (I) -> getCalledFunction() -> 
