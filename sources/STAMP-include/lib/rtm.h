@@ -39,7 +39,6 @@
 
     #include <immintrin.h>
 
-
 #endif // OLD_RTM_MACROSES
 
 #define XABORT(status) asm volatile(".byte 0xc6,0xf8,%P0" :: "i" (status))

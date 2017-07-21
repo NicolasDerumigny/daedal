@@ -1,5 +1,10 @@
 #! /bin/bash
 
+
+# Run the benches and gather the statistics in
+# a .csv file
+
+
 ./do_tests.sh > raw_results 
 
 rm output.csv

@@ -43,6 +43,8 @@ using namespace std;
 
 #define TM_BEGIN_X86 "llvm.x86.xbegin"
 #define TM_END_X86 "llvm.x86.xend"
+#define RTM_UNLOCK "RTM_fallback_unlock"
+#define RTM_LOCK "RTM_fallback_lock"
 
 #ifndef CallingDAE_
 #define CallingDAE_
@@ -512,19 +514,34 @@ Instruction* getInsertPoint(Instruction* I, DominatorTree * DT) {
 		return I;
 	BasicBlock * BB = I->getParent();
 
-	int parent=0;
-	BasicBlock * Insert_point;
+	int parent = 0;
+	BasicBlock * failure_label;
 	for (pred_iterator SI = pred_begin(BB), E = pred_end(BB); SI != E; ++SI) {
 		if (DT->dominates((*SI)->getTerminator(),BB)) {
+			++parent;
+			failure_label = *SI;
+		}
+	}
+	if(parent != 1) {
+		errs()<<"FATAL ERROR: too many failure: blocks\n";
+		BB->print(errs());
+		exit(-1);
+	}
+
+	parent = 0;
+	BasicBlock * Insert_point;
+	for (pred_iterator SI = pred_begin(failure_label), E = pred_end(failure_label); SI != E; ++SI) {
+		if (DT->dominates((*SI)->getTerminator(),failure_label)) {
 			++parent;
 			Insert_point = *SI;
 		}
 	}
 	if(parent != 1) {
-		errs()<<"FATAL ERROR: too many parents for TM_BEGIN block\n";
+		errs()<<"FATAL ERROR: too many parents for failure: block\n";
 		BB->print(errs());
 		exit(-1);
 	}
+
 
 	return Insert_point->getTerminator();
 }
@@ -555,8 +572,8 @@ Instruction* isEndTMOrLock(BasicBlock* BB) {
 					if (Fun -> getName() == "pthread_mutex_unlock" ||
 					Fun -> getName() == "pthread_mutex_lock" ||
 					Fun -> getName() == "commitTransaction" ||
-					Fun -> getName() == "pthread_spin_unlock" ||
-					Fun -> getName() == "pthread_spin_lock" ||
+					Fun -> getName() == RTM_UNLOCK ||
+					Fun -> getName() == RTM_LOCK ||
 					Fun -> getName() == TM_END_X86)
 						return &(*I);
 					// if this is a call bitcast, get the real function and figure out
@@ -576,12 +593,12 @@ Instruction* isEndTMOrLock(BasicBlock* BB) {
 			}
 			if(isa<CallInst>(I) && cast<CallInst> (I) -> getCalledFunction() ->
 			 hasName() && cast<CallInst> (I) -> getCalledFunction() 
-			 -> getName() == "pthread_spin_unlock") {
+			 -> getName() == RTM_UNLOCK) {
 				return &(*I);
 			}
 			if(isa<CallInst>(I) && cast<CallInst> (I) -> getCalledFunction() -> 
 				hasName() && cast<CallInst> (I) -> getCalledFunction() -> 
-				getName() == "pthread_spin_lock") {
+				getName() == RTM_LOCK) {
 				return &(*I);
 			}
 			if(isa<CallInst>(I) && cast<CallInst> (I) -> getCalledFunction() -> 

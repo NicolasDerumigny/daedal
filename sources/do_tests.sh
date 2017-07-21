@@ -1,3 +1,10 @@
+#! /bin/bash
+
+
+# Run all the STAMP benchs
+
+
+
 cd bin
 
 >&2 echo

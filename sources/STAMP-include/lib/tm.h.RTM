@@ -299,7 +299,7 @@
 #  define TM_ARGDECL_ALONE              /* nothing */
 #  define TM_CALLABLE                   /* nothing */
 
-#  define TM_STARTUP(numThread)         CPUID_RTM_CHECK; THREAD_MUTEX_INIT(global_rtm_mutex);
+#  define TM_STARTUP(numThread)         CPUID_RTM_CHECK; RTM_spinlock_init()
 #  define TM_SHUTDOWN()                 /* nothing */
 
 #  define TM_THREAD_ENTER()             /* nothing */
@@ -332,20 +332,20 @@
 
 #       define TM_BEGIN(i)                   {                     \
                                               __label__ failure;   \
+                                              unsigned __status = XBEGIN_STARTED;\
                                               int tries = 4;       \
                                               failure:             \
-                                              tries --;            \
+                                              update_reasons(__status, i);\
+                                              --tries;             \
                                               if (tries <= 0) {    \
-                                                pthread_mutex_lock(&global_rtm_mutex); \
+                                                RTM_fallback_lock(); \
                                                 ++g_locks[i];      \
-                                              } else {                         \
-                                                unsigned status = _xbegin();   \
-                                                update_reasons(status, i);     \
-                                                if (status != XBEGIN_STARTED) {\
-                                                  goto failure;                \
-                                                }                              \
-                                                if (global_rtm_mutex.__data.__owner != 0)\
-                                                  _xabort(0);\
+                                              } else {             \
+                                                __status = _xbegin();\
+                                                if (__status != XBEGIN_STARTED)\
+                                                  goto failure;    \
+                                                if (RTM_fallback_isLocked())\
+                                                  _xabort(0xab);\
                                               }
                                                        
                                               
@@ -353,8 +353,9 @@
 #       define TM_END(i)                      if (tries > 0) {     \
                                                 _xend();           \
                                                 ++g_succeed[i];    \
-                                              } else               \
-                                                pthread_mutex_unlock(&global_rtm_mutex); \
+                                              } else {             \
+                                                RTM_fallback_unlock(); \
+                                              }                    \
                                             };
 
 #    else //OLD_RTM_MACROSES
@@ -363,14 +364,14 @@
                                               XFAIL(failure);      \
                                               tries --;            \
                                               if (tries <= 0)      \
-                                                  pthread_mutex_lock(&global_rtm_mutex); \
+                                                  RTM_fallback_lock(); \
                                               else XBEGIN(failure);
                                               
 
 #       define TM_END()                      if (tries > 0)        \
                                                 XEND();            \
                                              else                  \
-                                                pthread_mutex_unlock(&global_rtm_mutex); \
+                                                 RTM_fallback_unlock(); \
                                             };
 #   endif //OLD_RTM_MACROSES
 

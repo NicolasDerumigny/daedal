@@ -73,6 +73,8 @@
 #include <stdlib.h>
 #include "thread.h"
 #include "types.h"
+#include "rtm.h"
+
 
 static THREAD_LOCAL_T    global_threadId;
 static long              global_numThread       = 1;
@@ -84,18 +86,85 @@ static void            (*global_funcPtr)(void*) = NULL;
 static void*             global_argPtr          = NULL;
 static volatile bool_t   global_doShutdown      = FALSE;
 
-THREAD_SPIN_T global_rtm_spin;
-int g_locks[15] = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
-int g_aborts[15] = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
-int g_succeed[15] = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
-int abort_reasons[15][6] = {{0,0,0,0,0,0}, {0,0,0,0,0,0}, {0,0,0,0,0,0}, {0,0,0,0,0,0}, {0,0,0,0,0,0}, {0,0,0,0,0,0}, {0,0,0,0,0,0}, {0,0,0,0,0,0}, {0,0,0,0,0,0}, {0,0,0,0,0,0}, {0,0,0,0,0,0}, {0,0,0,0,0,0}, {0,0,0,0,0,0}, {0,0,0,0,0,0}, {0,0,0,0,0,0}};
-void 
+
+volatile char RTM_lock_array[PADDED_ARRAY_SIZE_BYTES] __attribute__ ((aligned (CACHE_LINE_SIZE_BYTES))) ;
+volatile long * RTM_fallBackLock;
+
+volatile int g_locks[15] = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
+volatile int g_aborts[15] = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
+volatile int g_succeed[15] = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
+volatile int abort_reasons[15][6] = {{0,0,0,0,0,0}, {0,0,0,0,0,0}, {0,0,0,0,0,0}, {0,0,0,0,0,0}, {0,0,0,0,0,0}, {0,0,0,0,0,0}, {0,0,0,0,0,0}, {0,0,0,0,0,0}, {0,0,0,0,0,0}, {0,0,0,0,0,0}, {0,0,0,0,0,0}, {0,0,0,0,0,0}, {0,0,0,0,0,0}, {0,0,0,0,0,0}, {0,0,0,0,0,0}};
+
+/* =============================================================================
+ * RTM_spinlock_init
+ * -- Initialize the global spinlock used in case of too many TM aborts
+ * =============================================================================
+ */
+inline void RTM_spinlock_init() {
+  /* Make sure each synchronized variable maps to a different cache line */
+  RTM_fallBackLock = (long *)&RTM_lock_array[CACHE_LINE_SIZE_BYTES];
+  *RTM_fallBackLock = 0;
+}
+
+
+/* =============================================================================
+ * RTM_fallback_isLocked
+ * -- Check whether the spinlock is currently in use or not
+ * =============================================================================
+ */
+inline long RTM_fallback_isLocked() {
+  return *RTM_fallBackLock != 0;
+}
+
+
+/* =============================================================================
+ * RTM_fallback_whileIsLocked
+ * -- Wait until the fallback spinlock is not in use anymore
+ * =============================================================================
+ */
+inline void RTM_fallback_whileIsLocked() {
+  while (RTM_fallback_isLocked()) {
+    _mm_pause();
+  }
+}
+
+
+/* =============================================================================
+ * RTM_fallback_lock
+ * -- Blocking lock of the fallback spinlock
+ * =============================================================================
+ */
+inline void RTM_fallback_lock() {
+    while (!__sync_bool_compare_and_swap(RTM_fallBackLock, 0, 1)) {
+      RTM_fallback_whileIsLocked();
+    }
+}
+
+
+/* =============================================================================
+ * RTM_fallback_unlock
+ * -- Unlock the global fallback spinlock. WARNING: it does NOT check the owner !
+ * =============================================================================
+ */
+inline void RTM_fallback_unlock() {
+    asm volatile (""); // acts as a memory barrier.
+    *RTM_fallBackLock = 0;
+}
+
+
+/* =============================================================================
+ * update_reasons
+ * -- Update the global counters of failed sections based on RTM documentation
+ * =============================================================================
+ */
+int 
 update_reasons(unsigned status, int i) {
-  if (status == (~0u))
-    return;
+  if (status == XBEGIN_STARTED)
+    return 0;
   ++g_aborts[i];
   for (int k=0; k<6;++k)
     abort_reasons[i][k]+=(status >> k) & 1;
+  return 1;
 }
 
 

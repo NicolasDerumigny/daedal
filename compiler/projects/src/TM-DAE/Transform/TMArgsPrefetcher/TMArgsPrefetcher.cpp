@@ -456,7 +456,7 @@ protected:
 					// Zero-level loads
 					addZlvlInstr(&*I, BB, toKeep, setKeep, StayLoad, InsideTM); 
 
-				} else if (isa <CallInst> (I)) {
+				} else if (isa <CallInst> (I) && !cast <CallInst> (I)->isInlineAsm()) {
 					// Loads in function calls
 					CallInst * cI = cast <CallInst> (I);
 					Fun = cI ->getCalledFunction();

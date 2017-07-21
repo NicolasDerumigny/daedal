@@ -105,10 +105,10 @@ extern "C" {
 #define THREAD_MUTEX_LOCK(lock)             pthread_mutex_lock(&(lock))
 #define THREAD_MUTEX_UNLOCK(lock)           pthread_mutex_unlock(&(lock))
 
-#define THREAD_SPIN_T                      pthread_spinlock_t
-#define THREAD_SPIN_INIT(lock)             pthread_spin_init(&(lock), 0)
-#define THREAD_SPIN_LOCK(lock)             pthread_spin_lock(&(lock))
-#define THREAD_SPIN_UNLOCK(lock)           pthread_spin_unlock(&(lock))
+#define THREAD_SPIN_T                       pthread_spinlock_t
+#define THREAD_SPIN_INIT(lock)              pthread_spin_init(&(lock), 0)
+#define THREAD_SPIN_LOCK(lock)              pthread_spin_lock(&(lock))
+#define THREAD_SPIN_UNLOCK(lock)            pthread_spin_unlock(&(lock))
 
 
 #define THREAD_COND_T                       pthread_cond_t
@@ -124,12 +124,67 @@ extern "C" {
 #  define THREAD_BARRIER(bar, tid)          pthread_barrier_wait(bar)
 #  define THREAD_BARRIER_FREE(bar)          free(bar)
 #else /* !SIMULATOR */
+#  include <immintrin.h>
 #  define THREAD_BARRIER_T                  thread_barrier_t
 #  define THREAD_BARRIER_ALLOC(N)           thread_barrier_alloc(N)
 #  define THREAD_BARRIER_INIT(bar, N)       thread_barrier_init(bar)
 #  define THREAD_BARRIER(bar, tid)          thread_barrier(bar, tid)
 #  define THREAD_BARRIER_FREE(bar)          thread_barrier_free(bar)
+
+#  define CACHE_LINE_SIZE_BYTES 64
+#  define PADDED_ARRAY_SIZE_BYTES (CACHE_LINE_SIZE_BYTES * 4)
+
+
+extern volatile char RTM_lock_array[PADDED_ARRAY_SIZE_BYTES] __attribute__ ((aligned (CACHE_LINE_SIZE_BYTES)));
+extern volatile long * RTM_fallBackLock;
+
+extern volatile int g_locks[15];
+extern volatile int g_aborts[15];
+extern volatile int g_succeed[15];
+extern volatile int abort_reasons[15][6];
+
+
+/* =============================================================================
+ * RTM_spinlock_init
+ * -- Initialize the global spinlock used in case of too many TM aborts
+ * =============================================================================
+ */
+void RTM_spinlock_init();
+
+
+/* =============================================================================
+ * RTM_fallback_isLocked
+ * -- Check whether the spinlock is currently in use or not
+ * =============================================================================
+ */
+long RTM_fallback_isLocked();
+
+
+/* =============================================================================
+ * RTM_fallback_whileIsLocked
+ * -- Wait until the fallback spinlock is not in use anymore
+ * =============================================================================
+ */
+void RTM_fallback_whileIsLocked();
+
+
+/* =============================================================================
+ * RTM_fallback_lock
+ * -- Blocking lock of the fallback spinlock
+ * =============================================================================
+ */
+void RTM_fallback_lock();
+
+
+/* =============================================================================
+ * RTM_fallback_unlock
+ * -- Unlock the global fallback spinlock. WARNING: it does NOT check the owner !
+ * =============================================================================
+ */
+void RTM_fallback_unlock();
+
 #endif /* !SIMULATOR */
+
 
 typedef struct thread_barrier {
     THREAD_MUTEX_T countLock;
@@ -139,12 +194,14 @@ typedef struct thread_barrier {
     long numThread;
 } thread_barrier_t;
 
-extern THREAD_SPIN_T global_rtm_spin;
-extern int g_locks[15];
-extern int g_aborts[15];
-extern int g_succeed[15];
-extern int abort_reasons[15][6];
-void update_reasons(unsigned status, int i);
+
+/* =============================================================================
+ * update_reasons
+ * -- Update the global counters of failed sections based on RTM documentation
+ * =============================================================================
+ */
+int update_reasons(unsigned status, int i);
+
 
 /* =============================================================================
  * thread_startup
