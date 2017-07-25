@@ -1,4 +1,4 @@
-//===- TMFKernelPrefetch.cpp - DAE with Multiversioning ---------------------===//
+//===- TMFKernelPrefetch.cpp - TM-DAE with Multiversioning ---------------------===//
 //
 //					 The LLVM Compiler Infrastructure
 //
@@ -201,6 +201,7 @@ protected:
 		return closest;
 	}
 
+	//Eliminates loads that hit indir threashold
 	void filterLoadsOnIndir(list<LoadInst *> &LoadList, list<LoadInst *> &IndirList,
 												unsigned int IndirThresh) {
 		for (list<LoadInst *>::iterator I = LoadList.begin(), E = LoadList.end(); I != E; ++I) {
@@ -245,7 +246,8 @@ protected:
 		}
 	}
 
-
+	// Get the Access Phase by finding loads then refining
+	// them based on indir and dependencies
 	void findAccessInsts(Function &fun, list<LoadInst *> &toPref, unsigned int IndirThresh) {
 		list<LoadInst *> LoadList, VisibleList, IndirLoads;
 
@@ -328,7 +330,7 @@ protected:
 		}
 	}
 
-
+	// Get the dependencies intruction I inside the loop instructions
 	void getDeps(Instruction *I, set<Instruction *> &DepSet, bool followStores = true) {
 		queue<Instruction *> Q;
 		Q.push(I);
@@ -362,6 +364,7 @@ protected:
 		}
 	}
 
+	// Get the dependencies of the instruction outside of its loop
 	void getControlDeps(Instruction *I, set<Instruction *> &Deps) {
 		set<BasicBlock *> Starred;
 		BasicBlock *BB = I->getParent();
@@ -428,6 +431,7 @@ protected:
 		}
 	}
 
+	// find the instructions and call swoopifyCore to prefetch them
 	bool swoopify(Function & F){
 		LI = &getAnalysis<LoopInfoWrapperPass>(F).getLoopInfo();
 
@@ -455,6 +459,9 @@ protected:
 		return succeeded;
 	}
 
+	// Put the Access Phase outside the TM section. If no load is
+	// eligible to do so, prefetch put it the normal way (right before
+	// the loop)
 	bool swoopifyCore(Function &F, list<LoadInst*> toPref, 
 		bool forceNotTM = false) {
 		Function *access = &F; 
@@ -692,7 +699,8 @@ protected:
 	}
 
 
-	//init loadToVal: LInst -> Value in the current call
+	// get a map of the load instructions to their value in the
+	// current call
 	void initLoadToVal(list<LoadInst * > & toPref,
 					   map<LoadInst *, Value*> & loadToVal) {
 		list<LoadInst * > SureToPref;
@@ -716,8 +724,7 @@ protected:
 	}
 
 
-	// Update loadToVal: LInst -> Value in the current call
-	// by taking the ith argument of the call
+	// Update the loadToVal map when the function F is called
 	void updateLoadToVal(CallInst * I, Function * F, list<LoadInst * > & toPref, map<LoadInst *, Value*> & loadToVal) {
 		list<LoadInst * > SureToPref;
 		for (LoadInst * LInst : toPref) {

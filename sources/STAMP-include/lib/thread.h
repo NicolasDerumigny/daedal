@@ -134,14 +134,71 @@ extern "C" {
 #  define CACHE_LINE_SIZE_BYTES 64
 #  define PADDED_ARRAY_SIZE_BYTES (CACHE_LINE_SIZE_BYTES * 4)
 
-
 extern volatile char RTM_lock_array[PADDED_ARRAY_SIZE_BYTES] __attribute__ ((aligned (CACHE_LINE_SIZE_BYTES)));
 extern volatile long * RTM_fallBackLock;
 
-extern volatile int g_locks[15];
-extern volatile int g_aborts[15];
-extern volatile int g_succeed[15];
-extern volatile int abort_reasons[15][6];
+extern volatile unsigned g_locks[15];
+extern volatile unsigned g_accesses[15];
+extern volatile unsigned g_aborts[15];
+extern volatile unsigned g_succeed[15];
+extern volatile unsigned g_misses[15];
+extern volatile unsigned DTLB_l_misses[15];
+extern volatile unsigned DTLB_s_misses[15];
+extern volatile unsigned abort_reasons[15][6];
+extern _Thread_local int FD;
+
+
+
+/* =============================================================================
+ * RTM_output_stats
+ * -- Print the collected stats on performance counters and xbgin return code
+ * =============================================================================
+ */
+void 
+RTM_output_stats();
+
+
+/* =============================================================================
+ * init_one_perfcounter
+ * -- Init the performance counter corresponding to numer with value 0
+ *    measuring the infomation coded by whatToMeasure using 
+ *    /dev/cpu/X/msr interface
+ * For more information about selected MSR, read Intel® 64 and IA-32
+ * Architectures Software Developer’s Manual Volume 3
+ * =============================================================================
+ */
+void
+init_one_perfcounter(int number, unsigned long whatToMeasure);
+
+
+/* =============================================================================
+ * read_one_perfcounter
+ * -- Read the value in the MSR indicated by number using 
+ *    /dev/cpu/X/msr interface, and put it into whereToPut
+ * For more information about selected MSR, read Intel® 64 and IA-32
+ * Architectures Software Developer’s Manual Volume 3
+ * =============================================================================
+ */
+void
+read_one_perfcounter(int number, unsigned int * whereToPut);
+
+
+/* =============================================================================
+ * RTM_init_perfcounters
+ * -- Set to zero the MSR registers used to stat the TM section
+ * =============================================================================
+ */
+void
+RTM_init_perfcounters();
+
+
+/* =============================================================================
+ * RTM_update_perfcounters
+ * -- Update the stats using the value in MSR registers
+ * =============================================================================
+ */
+void
+RTM_update_perfcounters(int i);
 
 
 /* =============================================================================
@@ -149,7 +206,8 @@ extern volatile int abort_reasons[15][6];
  * -- Initialize the global spinlock used in case of too many TM aborts
  * =============================================================================
  */
-void RTM_spinlock_init();
+void
+RTM_spinlock_init();
 
 
 /* =============================================================================
@@ -157,7 +215,8 @@ void RTM_spinlock_init();
  * -- Check whether the spinlock is currently in use or not
  * =============================================================================
  */
-long RTM_fallback_isLocked();
+long
+RTM_fallback_isLocked();
 
 
 /* =============================================================================
@@ -165,7 +224,8 @@ long RTM_fallback_isLocked();
  * -- Wait until the fallback spinlock is not in use anymore
  * =============================================================================
  */
-void RTM_fallback_whileIsLocked();
+void
+RTM_fallback_whileIsLocked();
 
 
 /* =============================================================================
@@ -173,7 +233,8 @@ void RTM_fallback_whileIsLocked();
  * -- Blocking lock of the fallback spinlock
  * =============================================================================
  */
-void RTM_fallback_lock();
+void
+RTM_fallback_lock();
 
 
 /* =============================================================================
@@ -181,7 +242,8 @@ void RTM_fallback_lock();
  * -- Unlock the global fallback spinlock. WARNING: it does NOT check the owner !
  * =============================================================================
  */
-void RTM_fallback_unlock();
+void
+RTM_fallback_unlock();
 
 #endif /* !SIMULATOR */
 
@@ -200,7 +262,8 @@ typedef struct thread_barrier {
  * -- Update the global counters of failed sections based on RTM documentation
  * =============================================================================
  */
-int update_reasons(unsigned status, int i);
+int
+update_reasons(unsigned status, int i);
 
 
 /* =============================================================================

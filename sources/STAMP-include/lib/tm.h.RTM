@@ -157,13 +157,7 @@
 #  include <stdio.h>
 
 #  define MAIN(argc, argv)              int main (int argc, char** argv)
-#  define MAIN_RETURN(val)              for (int i=0;i<15;++i)printf("Locks: %i\n", g_locks[i]);          \
-                                        for (int i=0;i<15;++i)printf("Commits: %i\n", g_succeed[i]);      \
-                                        for (int i=0;i<15;++i) {                \
-                                          printf("Aborts: %i\n", g_aborts[i]);  \
-                                          for (int j=0;j<6;++j)printf("Reason: %i\n", abort_reasons[i][j]);\
-                                        }                                       \
-                                        return val
+#  define MAIN_RETURN(val)              RTM_output_stats();return val
 
 #  define GOTO_SIM()                    /* nothing */
 #  define GOTO_REAL()                   /* nothing */
@@ -299,7 +293,7 @@
 #  define TM_ARGDECL_ALONE              /* nothing */
 #  define TM_CALLABLE                   /* nothing */
 
-#  define TM_STARTUP(numThread)         CPUID_RTM_CHECK; RTM_spinlock_init()
+#  define TM_STARTUP(numThread)         /*CPUID_RTM_CHECK;*/ RTM_spinlock_init()
 #  define TM_SHUTDOWN()                 /* nothing */
 
 #  define TM_THREAD_ENTER()             /* nothing */
@@ -334,6 +328,7 @@
                                               __label__ failure;   \
                                               unsigned __status = XBEGIN_STARTED;\
                                               int tries = 4;       \
+                                              RTM_init_perfcounters();\
                                               failure:             \
                                               update_reasons(__status, i);\
                                               --tries;             \
@@ -356,6 +351,7 @@
                                               } else {             \
                                                 RTM_fallback_unlock(); \
                                               }                    \
+                                              RTM_update_perfcounters(i);\
                                             };
 
 #    else //OLD_RTM_MACROSES

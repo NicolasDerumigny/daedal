@@ -67,10 +67,16 @@
  *
  * =============================================================================
  */
-
-
+#define _GNU_SOURCE
+#include <sched.h>
 #include <assert.h>
 #include <stdlib.h>
+#include <stdio.h>
+#include <unistd.h>
+#include <sys/types.h>
+#include <sys/stat.h>
+#include <fcntl.h>
+#include <sys/sysinfo.h>
 #include "thread.h"
 #include "types.h"
 #include "rtm.h"
@@ -89,18 +95,180 @@ static volatile bool_t   global_doShutdown      = FALSE;
 
 volatile char RTM_lock_array[PADDED_ARRAY_SIZE_BYTES] __attribute__ ((aligned (CACHE_LINE_SIZE_BYTES))) ;
 volatile long * RTM_fallBackLock;
+_Thread_local int FD;
 
-volatile int g_locks[15] = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
-volatile int g_aborts[15] = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
-volatile int g_succeed[15] = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
-volatile int abort_reasons[15][6] = {{0,0,0,0,0,0}, {0,0,0,0,0,0}, {0,0,0,0,0,0}, {0,0,0,0,0,0}, {0,0,0,0,0,0}, {0,0,0,0,0,0}, {0,0,0,0,0,0}, {0,0,0,0,0,0}, {0,0,0,0,0,0}, {0,0,0,0,0,0}, {0,0,0,0,0,0}, {0,0,0,0,0,0}, {0,0,0,0,0,0}, {0,0,0,0,0,0}, {0,0,0,0,0,0}};
+
+
+volatile unsigned g_locks[15] = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
+volatile unsigned g_aborts[15] = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
+volatile unsigned g_accesses[15] = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
+volatile unsigned g_succeed[15] = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
+volatile unsigned g_misses[15] = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
+volatile unsigned DTLB_l_misses[15] = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
+volatile unsigned DTLB_s_misses[15] = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
+volatile unsigned abort_reasons[15][6] = {{0,0,0,0,0,0}, {0,0,0,0,0,0}, {0,0,0,0,0,0}, {0,0,0,0,0,0}, {0,0,0,0,0,0}, {0,0,0,0,0,0}, {0,0,0,0,0,0}, {0,0,0,0,0,0}, {0,0,0,0,0,0}, {0,0,0,0,0,0}, {0,0,0,0,0,0}, {0,0,0,0,0,0}, {0,0,0,0,0,0}, {0,0,0,0,0,0}, {0,0,0,0,0,0}};
+
+
+
+/* =============================================================================
+ * RTM_output_stats
+ * -- Print the collected stats on performance counters and xbgin return code
+ * =============================================================================
+ */
+void
+RTM_output_stats() {
+    for (int i=0;i<15;++i) {
+      printf("Locks: %i\n", g_locks[i]);
+      printf("Commits: %i\n", g_succeed[i]);
+      printf("Aborts: %i\n", g_aborts[i]);
+      printf("Misses: %i\n", g_misses[i]);
+      printf("Accesses: %i\n", g_accesses[i]);
+      printf("DTLB load misses: %i\n", DTLB_l_misses[i]);
+      printf("DTLB store misses: %i\n", DTLB_s_misses[i]);
+      for (int j=0;j<6;++j)printf("Reason: %i\n", abort_reasons[i][j]);
+    }
+}
+
+
+/* =============================================================================
+ * init_one_perfcounter
+ * -- Init the performance counter corresponding to numer with value 0
+ *    measuring the infomation coded by whatToMeasure using 
+ *    /dev/cpu/X/msr interface
+ * For more information about selected MSR, read Intel® 64 and IA-32
+ * Architectures Software Developer’s Manual Volume 3
+ * =============================================================================
+ */
+inline void
+init_one_perfcounter(int number, unsigned long whatToMeasure) {
+    int ret;
+    off_t offset;
+    unsigned long zeros = 0;
+
+    // Select MSR IA32_PERFEVTSEL(number)
+    offset = lseek(FD, 0x186 + number, SEEK_SET);
+    assert(offset > 0);
+    ret = write(FD, (void *) &whatToMeasure, 8);
+    assert(ret > 0);
+    // Select MSR IA32_PMC NUM
+    offset = lseek(FD, 0xc1 + number, SEEK_SET);
+    // Reset the counter
+    ret = write(FD, (void *) &zeros, 8);
+    printf("0x%08x\n", whatToMeasure);
+    assert(ret > 0);
+}
+
+
+/* =============================================================================
+ * read_one_perfcounter
+ * -- Read the value in the MSR indicated by number using 
+ *    /dev/cpu/X/msr interface, and put it into whereToPut
+ * For more information about selected MSR, read Intel® 64 and IA-32
+ * Architectures Software Developer’s Manual Volume 3
+ * =============================================================================
+ */
+inline void
+read_one_perfcounter(int number, unsigned * whereToPut) {
+    int ret;
+    off_t offset;
+    unsigned long stats;
+
+    // Select MSR IA32_PMC(number)
+    offset = lseek(FD, 0xc1 + number, SEEK_SET);
+    assert(offset>0);
+    // Read the counter
+    ret = read(FD,(void *) &stats, 8);
+    assert(ret>0);
+    (*whereToPut) += stats;
+}
+
+/* =============================================================================
+ * RTM_init_perfcounters
+ * -- Set to zero the MSR registers used to stat the TM section
+ * For more information about selected MSR, read Intel® 64 and IA-32
+ * Architectures Software Developer’s Manual Volume 3
+ * =============================================================================
+ */
+void
+RTM_init_perfcounters() {
+    // Select MSR IA32_PERFEVTSEL0
+    // Put L2_RQSTS.MISS
+    init_one_perfcounter(0, 0x413F24);
+
+    // Select MSR IA32_PERFEVTSEL1
+    // Put L2_RQSTS.REFERENCES
+    init_one_perfcounter(1, 0x41FF24);
+
+    // Select MSR IA32_PERFEVTSEL2
+    // Put RTM_RETIRED.ABORTED_MEM
+    init_one_perfcounter(2, 0x4108C9);
+
+    // Select MSR IA32_PERFEVTSEL3
+    // Put RTM_RETIRED.ABORTED_TIMER
+    init_one_perfcounter(3, 0x4110C9);
+
+    // Select MSR IA32_PERFEVTSEL4
+    // Put RTM_RETIRED.ABORTED_MEMTYPE
+    init_one_perfcounter(4, 0x4140C9);
+
+    // Select MSR IA32_PERFEVTSEL5
+    // Put RTM_RETIRED.ABORTED_EVENTS
+    init_one_perfcounter(5, 0x4180C9);
+
+    // Select MSR IA32_PERFEVTSEL5
+    // Put DTLB_LOAD_MISSES.MISS_CAUSES_A_WALK
+    init_one_perfcounter(6, 0x410108);
+
+    // Select MSR IA32_PERFEVTSEL5
+    // Put DTLB_STORE_MISSES.MISS_CAUSES_A_WALK
+    init_one_perfcounter(7, 0x410149);
+}
+
+
+/* =============================================================================
+ * RTM_update_perfcounters
+ * -- Update the stats using the value in MSR registers
+ * For more information about selected MSR, read Intel® 64 and IA-32
+ * Architectures Software Developer’s Manual Volume 3
+ * =============================================================================
+ */
+void
+RTM_update_perfcounters(int i) {
+
+    // Read L2_RQSTS.MISS
+    read_one_perfcounter(0, (unsigned *) &g_misses[i]);
+
+    // Read L2_RQSTS.REFERENCES
+    read_one_perfcounter(1, (unsigned *) &g_accesses[i]);
+
+    // Read RTM_RETIRED.ABORTED_MEM
+    read_one_perfcounter(2, (unsigned *) &abort_reasons[2]);
+
+    // Read RTM_RETIRED.ABORTED_TIMER
+    read_one_perfcounter(3, (unsigned *) &abort_reasons[3]);
+
+    // Read RTM_RETIRED.ABORTED_MEMTYPE
+    read_one_perfcounter(4, (unsigned *) &abort_reasons[4]);
+
+    // Read RTM_RETIRED.ABORTED_EVENTS
+    read_one_perfcounter(5, (unsigned *) &abort_reasons[5]);
+
+    // Read DTLB_LOAD_MISSES.MISS_CAUSES_A_WALK
+    read_one_perfcounter(6, (unsigned *) &DTLB_l_misses[5]);
+
+    // Read DTLB_STORE_MISSES.MISS_CAUSES_A_WALK
+    read_one_perfcounter(7, (unsigned *) &DTLB_s_misses[5]);
+}
+
+
 
 /* =============================================================================
  * RTM_spinlock_init
  * -- Initialize the global spinlock used in case of too many TM aborts
  * =============================================================================
  */
-inline void RTM_spinlock_init() {
+inline void
+RTM_spinlock_init() {
   /* Make sure each synchronized variable maps to a different cache line */
   RTM_fallBackLock = (long *)&RTM_lock_array[CACHE_LINE_SIZE_BYTES];
   *RTM_fallBackLock = 0;
@@ -112,7 +280,8 @@ inline void RTM_spinlock_init() {
  * -- Check whether the spinlock is currently in use or not
  * =============================================================================
  */
-inline long RTM_fallback_isLocked() {
+inline long
+RTM_fallback_isLocked() {
   return *RTM_fallBackLock != 0;
 }
 
@@ -122,7 +291,8 @@ inline long RTM_fallback_isLocked() {
  * -- Wait until the fallback spinlock is not in use anymore
  * =============================================================================
  */
-inline void RTM_fallback_whileIsLocked() {
+inline void
+RTM_fallback_whileIsLocked() {
   while (RTM_fallback_isLocked()) {
     _mm_pause();
   }
@@ -134,7 +304,8 @@ inline void RTM_fallback_whileIsLocked() {
  * -- Blocking lock of the fallback spinlock
  * =============================================================================
  */
-inline void RTM_fallback_lock() {
+inline void
+RTM_fallback_lock() {
     while (!__sync_bool_compare_and_swap(RTM_fallBackLock, 0, 1)) {
       RTM_fallback_whileIsLocked();
     }
@@ -146,7 +317,8 @@ inline void RTM_fallback_lock() {
  * -- Unlock the global fallback spinlock. WARNING: it does NOT check the owner !
  * =============================================================================
  */
-inline void RTM_fallback_unlock() {
+inline void
+RTM_fallback_unlock() {
     asm volatile (""); // acts as a memory barrier.
     *RTM_fallBackLock = 0;
 }
@@ -162,8 +334,10 @@ update_reasons(unsigned status, int i) {
   if (status == XBEGIN_STARTED)
     return 0;
   ++g_aborts[i];
-  for (int k=0; k<6;++k)
-    abort_reasons[i][k]+=(status >> k) & 1;
+  //XAbort()
+  abort_reasons[i][0]+=status & 1;
+  //Overflow
+  abort_reasons[i][1]+=(status >> 3) & 1;
   return 1;
 }
 
@@ -177,8 +351,26 @@ static void
 threadWait (void* argPtr)
 {
     long threadId = *(long*)argPtr;
+    char msr_path[16];
+    cpu_set_t *cpusetp;
+    size_t size;
+    int ret;
 
     THREAD_LOCAL_SET(global_threadId, (long)threadId);
+
+    //Performance counters: set affinity
+    cpusetp = CPU_ALLOC(get_nprocs());
+    assert(cpusetp != NULL);
+    size = CPU_ALLOC_SIZE(get_nprocs());
+    CPU_ZERO_S(size, cpusetp);
+    CPU_SET_S((int) global_threadId, size, cpusetp);
+    ret = pthread_setaffinity_np(pthread_self(), size, cpusetp);
+    assert(ret == 0);
+
+    //Performance counters: init FD
+    sprintf(msr_path, "/dev/cpu/%li/msr", threadId);
+    FD = open(msr_path, O_RDWR);
+    assert(FD > 0);
 
     while (1) {
         THREAD_BARRIER(global_barrierPtr, threadId); /* wait for start parallel */
@@ -191,6 +383,9 @@ threadWait (void* argPtr)
             break;
         }
     }
+    ret = close(FD);
+    assert(ret == 0);
+
 }
 
 

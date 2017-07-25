@@ -415,6 +415,9 @@ void insertCallOrigToPAPI(CallInst *execute) {
 	Builder.CreateCall(profiler_end_execute, p_counters);
 }
 
+
+// Put all the instruction of the TM section in the InsideTM set by
+// a traversal of the CFG
 void getInsideTM(
 	BasicBlock * BB,
 	set<Instruction *> & InsideTM) {
@@ -459,6 +462,9 @@ void getInsideTM(
 	}
 }
 
+
+// Get all the basicBlocks that have a TM_BEGIN() instruction and that
+// dominates I
 void getBeginTransactionalSection(list<LoadInst * > & toHoist, CallInst * I, 
 	set<BasicBlock *> & bTS, vector<BasicBlock *> & vBlockWithoutBTS, 
 	map<BasicBlock *, vector<Value *>> & funArgs, map<LoadInst *, Value*> & loadToVal) {
@@ -507,6 +513,10 @@ void getBeginTransactionalSection(list<LoadInst * > & toHoist, CallInst * I,
 	}
 }
 
+
+// Return a block that is executed one time, no matter the number
+// of retries of the TM section. Warning: this is different if we
+// uses Ruben's simulatore or RTM version
 Instruction* getInsertPoint(Instruction* I, DominatorTree * DT) {
 	if(isa<CallInst>(I) && cast<CallInst> (I) -> getCalledFunction() 
 			 && cast<CallInst> (I) -> getCalledFunction() ->	hasName()
@@ -546,6 +556,8 @@ Instruction* getInsertPoint(Instruction* I, DominatorTree * DT) {
 	return Insert_point->getTerminator();
 }
 
+// Returns a pointer to the TM_BEGIN() instruction if there is any,
+// nullptr otherwise
 Instruction* isBeginTM(BasicBlock* BB) {
 	for (BasicBlock::iterator I = BB->begin(), E = BB->end(); I != E; ++I){
 		if(isa<CallInst>(I) && cast<CallInst> (I) -> getCalledFunction() 
@@ -562,7 +574,8 @@ Instruction* isBeginTM(BasicBlock* BB) {
 }
 
 
-
+// Returns a pointer to the TM_END()/Lock/Unlock instruction if there
+// is any, nullptr otherwise
 Instruction* isEndTMOrLock(BasicBlock* BB) {
 	for (BasicBlock::iterator I = BB->begin(), E = BB->end(); I != E; ++I) {
 		if( isa<CallInst>(I) && ! (cast<CallInst>(I) -> isInlineAsm())) {
@@ -617,6 +630,8 @@ Instruction* isEndTMOrLock(BasicBlock* BB) {
 	return nullptr;
 }
 
+// Not used: Get the pointer to the forst Assert Fail instruction if
+// there is any, nreturns nullptr otherwise
 Instruction* isAssertFail(BasicBlock* BB) {
 	for (BasicBlock::iterator I = BB->begin(), E = BB->end(); I != E; ++I){
 		if(isa<CallInst>(I) && !cast<CallInst> (I) -> isInlineAsm()
@@ -630,9 +645,9 @@ Instruction* isAssertFail(BasicBlock* BB) {
 }
 
 
+// Gather in vF the call insructions that target function F
+// in module M
 void getCallers(Module * M, Function * F, vector<CallInst * > & vF){
-	//Gather in vF the functions inside which there is a call
-	//to F
 	for (Module::iterator MI = M->begin(), mE = M->end(); MI != mE; ++MI){
 		for (Function::iterator FI = (*MI).begin(), eFI = (*MI).end(); FI != eFI; ++FI) {
 			for (BasicBlock::iterator I = (*FI).begin(), E = (*FI).end(); I != E; ++I) {
@@ -642,20 +657,6 @@ void getCallers(Module * M, Function * F, vector<CallInst * > & vF){
 					}
 				}
 			}
-		}
-	}
-}
-
-
-//construct the argument vector
-void constructArgVector(list <LoadInst *> toHoist, BasicBlock * BB, 
-	map<LoadInst *, Value*> & loadToVal, map<BasicBlock *, vector<Value *>> &funArgs){
-	map<Value *, char> seen;
-	funArgs[BB] = vector<Value *> ();
-	for (LoadInst * LInst: toHoist){
-		if (seen.find(cast<GetElementPtrInst> (LInst->getPointerOperand())->getPointerOperand())==seen.end()){
-			funArgs[BB].push_back(loadToVal[LInst]);
-			seen[cast<GetElementPtrInst> (LInst->getPointerOperand())->getPointerOperand()] = 1;
 		}
 	}
 }

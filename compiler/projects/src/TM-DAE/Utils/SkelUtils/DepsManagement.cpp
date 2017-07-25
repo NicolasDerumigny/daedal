@@ -1,4 +1,4 @@
-//===- DepsManagement.cpp - Utility for calling and timing DAE-----------------===//
+//===- DepsManagement.cpp - Utility for computing dependencies-----------------===//
 //
 //										 The LLVM Compiler Infrastructure
 //
@@ -246,7 +246,8 @@ void enqueueStores(
 	}
 }
 
-
+// See followDeps, adapted for only regard instructions that are
+// present in InsideTM
 bool followDepsZLvl(
 	set <Instruction *> InsideTM,
 	set <Instruction *> & Set,
@@ -319,7 +320,8 @@ bool followDepsZLvl(
 	return followDepsZLvl(InsideTM, Set, DepSet, AA, FollowMust, FollowPartial, FollowMay);
 }
 
-// Enques the operands of Inst.
+// Enques the operands of Inst, adapted to use only instructions in
+// InsideTM
 void enqueueOperandsZLvl(
 	set <Instruction *> InsideTM,
 	Instruction *Inst,
@@ -335,7 +337,8 @@ void enqueueOperandsZLvl(
 
 // Adds Val to Set and Q provided it is an Instruction that has
 // never before been enqued to Q. This assumes that an Instruction
-// is present in Set iff it has been added to Q.
+// is present in Set iff it has been added to Q. adapted to add only
+// instructions that are present int InsideTM
 void enqueueInstZLvl(
 	set <Instruction *> InsideTM,
 	Value *Val,
@@ -418,6 +421,8 @@ void enqueueStoresZLvl(
 	}
 }
 
+// Return whether a value is prefetchable or not, i.e. if it is
+// either an argument or is side effect free.
 bool isPrefetchable(Value* Val, set <unsigned> ArgsCanDep) {
 	bool res = Val->getType()-> isPointerTy();
 	Instruction * Inst;

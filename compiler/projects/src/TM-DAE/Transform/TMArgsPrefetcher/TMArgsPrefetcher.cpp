@@ -1,4 +1,4 @@
-//===- TMArgsPrefetcher.cpp - DAE with Multiversioning ---------------------===//
+//===- TMArgsPrefetcher.cpp - TM-Arg with Multiversioning ---------------------===//
 //
 //					 The LLVM Compiler Infrastructure
 //
@@ -13,9 +13,10 @@
 /// \copyright Eta Scale AB. Licensed under the Eta Scale Open Source License. See
 /// the LICENSE file for details.
 //
-// This file implement the prefetching of all function arguments that 
-// are both pointer and used in a load instruction before a store.
-// They are all prefetched right before the begining of the transactional
+// This file implement the prefetching of loads instructions by
+// following all function arguments that are both pointer and used
+// in a load instruction before a store.
+// They are all prefetched right before the beginning of the transactional
 // section.
 //===----------------------------------------------------------------------===//
 
@@ -78,6 +79,12 @@ public:
 	}
 
 
+	// TM-Arg: follow CFG and call graph to prefetch all load instruction
+	// The implementation is don in three steps:
+	// getFunarg that collect the loads and the dependencies
+	// refine that create the new instructions that are copies
+	// of the original ones and prefetchArgs that creates the
+	// prefetch call and hoist it outside the TM section
 	bool runOnModule(Module &M) {
 		bool change = false;
 		PRINTSTREAM<<"\n";
@@ -124,7 +131,10 @@ protected:
 	DominatorTree * DT;
 
 
-	// Inserts the dependencies Deps into toKeep
+	// Inserts the instructions Deps into toKeep in the right order
+	// knowing that BB is a block of the same function as the 
+	// instructions in Deps. In case of a Load, it is added to the 
+	// set StayLoad in order not to be prefetched after
 	void insertDeps(
 		BasicBlock * BB, 
 		set <Instruction *> Deps, 
@@ -158,7 +168,10 @@ protected:
 		}
 	}
 
-
+	// If there are no stores or side effect function called in
+	// the dependencies of I and that it requires no other arguments
+	// than those in ArgsCamDep, add I and its dependence to the
+	// list of instructions toKeep that will be prefetched
 	bool addInstr(
 		set <unsigned> ArgsCanDep,
 		set <unsigned> & used,
@@ -173,6 +186,7 @@ protected:
 			for (Instruction * Inst: Deps) {
 				if (isa <AllocaInst>(Inst))
 					return false;
+				// Currently disable loads dependencies
 				if (isa <LoadInst> (Inst))
 					return false;
 
@@ -196,6 +210,10 @@ protected:
 		}
 	}
 
+	// If there are no stores or side effect function called in
+	// the dependencies of I and that it requires no other instructions
+	// than those in InsideTM, add I and its dependence to the
+	// list of instructions toKeep that will be prefetched
 	bool addZlvlInstr(
 		Instruction * I,
 		BasicBlock * BB,
@@ -209,6 +227,7 @@ protected:
 			for (Instruction * Inst: Deps) {
 				if (isa <AllocaInst>(Inst))
 					return false;
+				// Currently disable loads dependencies
 				if (isa <LoadInst> (Inst))
 					return false;
 			}
@@ -220,7 +239,7 @@ protected:
 		return false;
 	}
 
-	// Returns a reference to the ith argument
+	// Returns a reference to the ith argument of the function F
 	Value * getArgVal(
 		unsigned i,
 		Function * F) {
@@ -237,8 +256,11 @@ protected:
 	}
 
 
-	// Collects the instructions that has to be kept in the access
-	// phase. Store also the loads that cannot be prefetched
+	// Traverse the BasicBlock BB to find all loads instructions
+	// that can be prefetch, and add them and their dependencies to
+	// toKeep. In case a a function call, a recursive call to
+	// collectInstr is done after having verified which argument
+	// was prefetchable or not.
 	void collectToKeep(
 		set <unsigned> ArgsCanDep,
 		set <unsigned> & usedArgs,
@@ -250,28 +272,6 @@ protected:
 		map <Instruction *, map <Value *, Value *>> & CallToArgs) {
 
 		for (BasicBlock::iterator I = BB->begin(), E = BB->end(); I != E; ++I) {
-
-
-			/*if (isa <ICmpInst> (I)) {
-				// If we compare directly a pointer, it cannot be use later
-				// as it may be invalid
-				for (Instruction::op_iterator b=I->op_begin(),
-									e=I->op_end(); b!=e; ++b) {
-					set <Instruction *> Deps;
-					if (followDeps(cast <Instruction> (*b), Deps, AA, true, true, true)) {
-						for (auto Inst : Deps) {
-							for (Instruction::op_iterator b2=Inst->op_begin(),
-								e2=Inst->op_end(); b2!=e2; ++b2) {
-								Argument * Arg;
-								if ((Arg = dyn_cast <Argument> (*b2)) &&
-									ArgsCanDep.find(Arg->getArgNo()) != ArgsCanDep.end()) {
-									ArgsCanDep.erase(Arg->getArgNo());
-								}
-							}
-						}
-					}
-				}
-			}*/
 
 			if (isa <LoadInst> (I)) {
 				set <unsigned> mayUsed;
@@ -315,7 +315,7 @@ protected:
 							(followDeps(cast <Instruction> (*b),
 												 Deps, AA, true, true, true)))) {
 
-							// if the value is an instruction, compute its dependencies
+							// If the value is an instruction, compute its dependencies
 							// else, it is an argument so it may be used depending
 							// on its deps
 							if (isa <Instruction> (*b)) {
@@ -327,6 +327,7 @@ protected:
 							for (Instruction * Inst: Deps) {
 								if (isa <AllocaInst>(Inst))
 									insert=false;
+								// Currently disable loads dependencies
 								if (isa <LoadInst> (Inst))
 									insert=false;
 								for (Instruction::op_iterator b=Inst->op_begin(),
@@ -348,6 +349,7 @@ protected:
 							}
 						}
 
+						// If it is a constant, it can of course be used
 						if (isa <ConstantExpr> (*b)) {
 							ArgsCanDepSubCall.insert(i);
 							ArgsToDeps[i]=set<Instruction *> ();
@@ -395,9 +397,11 @@ protected:
 	}
 
 
-	// Collect by a BFS on the functions the instructions that are
-	// suitable for prefetching, and keep a map :
-	// value -> argument that takes this value
+	// Traverse the CFG of F to find all BasicBlocks and call collectToKeep
+	// on them to get the loads instruction. Note that visited is
+	// not a reference, because the same function can be called several
+	// times with different arguments: thus we do not have seen its 
+	// BasicBlocks before
 	void collectInstr(
 		set <unsigned> ArgsCanDep,
 		set <unsigned> & usedArgs,
@@ -406,10 +410,7 @@ protected:
 		set <Instruction *> & StayLoad,
 		set <BasicBlock *> visited,
 		map <Instruction *, map <Value *, Value *>> & CallToArgs) {
-		
-		// visited should not be modified as it is local to the function call 
-		// -> we want to prefetch two times the same function
-		// if there are two calls with different arguments
+
 		queue <BasicBlock *> Q;
 		Q.push(&F->getEntryBlock());
 
@@ -433,8 +434,14 @@ protected:
 		}
 	}
 
-	// Put the values that are loaded and their dependencies in
-	// toKeep
+	// Traverse the BasicBlock BB to find all loads instructions
+	// that can be prefetch, and add them and their dependencies to
+	// toKeep. In case a a function call, a primary call to
+	// collectInstr is done after having verified which argument
+	// was prefetchable or not.
+	// Note that this function is the "initialization" of the recursion
+	// collectInstr/collectToKeep, and handle also the Zero-level
+	// loads
 	void getAccessPhase(
 		BasicBlock * BB,
 		list <Instruction *> & toKeep,
@@ -467,6 +474,7 @@ protected:
 						}
 					}
 
+					// Call to a function: init the recursion
 					if (!Fun->isDeclaration()) {
 						unsigned i = 0;
 						Instruction * marker = cI->clone();
@@ -496,6 +504,7 @@ protected:
 								for (Instruction * Inst: Deps) {
 									if (isa <AllocaInst>(Inst))
 										insert=false;
+								// Currently disable loads dependencies
 									if (isa <LoadInst> (Inst))
 										insert=false;
 								}
@@ -543,9 +552,9 @@ protected:
 	}
 
 
-	// simple DFS over the basic block to find all the avalaible 
-	// instructions to prefetch
-	// toKeep: ({Value in following instructions}, inst to prefetch)
+	// Mirror of the collectInstr function for the first step of the 
+	// recursion. Scan the content of the TM section by a traversal
+	// of the CFG and call getAccessPhase on them
 	void getFunArg(
 		BasicBlock * BB,
 		list <Instruction *> & toKeep,
@@ -576,7 +585,11 @@ protected:
 	}
 
 	// Create several copies of the instruction to handle all possible PHINode
-	// affectation of variables one the first execution
+	// affectation of variables on the first execution
+	// call recusively itself to traverse all operands with
+	// all possible values. On terminal calls (no operand left)
+	// do the real copy and the affectation of new operands.
+	// See refine() for more information.
 	unsigned createPrefInstr(
 		unsigned depth,
 		list <Value *> & Args,
@@ -653,8 +666,13 @@ protected:
 		}
 	}
 
-	// Remove the instruction present twice, clone the others
-	// and replace the old values by its new one
+	// Remove the instruction present twice, copy the others to
+	// generate the future access phase and update the operand
+	// so that they use th updates value
+	// It uses a stack to handle function calls
+	// In case of loads, it is either kept as it if it has to be 
+	// prefetched, or is copyied into a new one if it is needed
+	// for other instructions (behaviour currently disabled)
 	unsigned refine(
 		list <Instruction *> & toKeep,
 		set <Instruction *> & StayLoad,
@@ -802,13 +820,15 @@ protected:
 					seenGEP, seenCast, seenAdd, seenMul);
 			}
 		}
-
 		return ret;
 	}
 
 
 
-	//insert prefetches before the TM_BEGIN
+	// Replace the loads that where not dependencies by prefetch,
+	// idem for the memcpy calls. Insert the Access phase before the
+	// beginning of the TM section so that s is executed only once per
+	// transaction, no matter how many retries are done
 	void prefetchArgs(
 		BasicBlock* BB,
 		list <Instruction *> & refined,
