@@ -69,8 +69,6 @@ void getBeginTransactionalSection(list<LoadInst * > & toHoist, CallInst * I,
 void getCallers(Module * M, Function * F, vector<CallInst * > & vF);
 void constructArgVector(list <LoadInst *> toHoist, BasicBlock * BB, 
 	map<LoadInst *, Value*> & loadToVal, map<BasicBlock *, vector<Value *>> &funArgs);
-void addDeclaredValues(BasicBlock * aBB,
-					 map<Value*, pair< set<Value*>, list<Instruction *>>> & toKeepFun);
 
 
 
@@ -644,6 +642,18 @@ Instruction* isAssertFail(BasicBlock* BB) {
 	return nullptr;
 }
 
+// Construct the argument vector
+void constructArgVector(list <LoadInst *> toHoist, BasicBlock * BB, 
+	map<LoadInst *, Value*> & loadToVal, map<BasicBlock *, vector<Value *>> &funArgs){
+	map<Value *, char> seen;
+	funArgs[BB] = vector<Value *> ();
+    for (LoadInst * LInst: toHoist){
+		if (seen.find(cast<GetElementPtrInst> (LInst->getPointerOperand())->getPointerOperand())==seen.end()){
+			funArgs[BB].push_back(loadToVal[LInst]);
+			seen[cast<GetElementPtrInst> (LInst->getPointerOperand())->getPointerOperand()] = 1;
+		}
+	}
+}
 
 // Gather in vF the call insructions that target function F
 // in module M

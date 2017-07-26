@@ -81,6 +81,7 @@
 #include "types.h"
 #include "rtm.h"
 
+#define MSR_MAX 4
 
 static THREAD_LOCAL_T    global_threadId;
 static long              global_numThread       = 1;
@@ -145,6 +146,9 @@ init_one_perfcounter(int number, unsigned long whatToMeasure) {
     off_t offset;
     unsigned long zeros = 0;
 
+    if (number >= MSR_MAX)
+        return;
+
     // Select MSR IA32_PERFEVTSEL(number)
     offset = lseek(FD, 0x186 + number, SEEK_SET);
     assert(offset > 0);
@@ -154,7 +158,6 @@ init_one_perfcounter(int number, unsigned long whatToMeasure) {
     offset = lseek(FD, 0xc1 + number, SEEK_SET);
     // Reset the counter
     ret = write(FD, (void *) &zeros, 8);
-    printf("0x%08x\n", whatToMeasure);
     assert(ret > 0);
 }
 
@@ -172,6 +175,10 @@ read_one_perfcounter(int number, unsigned * whereToPut) {
     int ret;
     off_t offset;
     unsigned long stats;
+
+
+    if (number >= MSR_MAX)
+        return;
 
     // Select MSR IA32_PMC(number)
     offset = lseek(FD, 0xc1 + number, SEEK_SET);

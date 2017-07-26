@@ -186,11 +186,49 @@ do
 
 	echo ";" >> output.csv
 
-	or (( nb_bench=0; nb_bench<=(NUM_BENCHS - 1); nb_bench++ ))
+	for (( nb_bench=0; nb_bench<=(NUM_BENCHS - 1); nb_bench++ ))
 	do
 		for tm_section in {1..15}
 		do
 			cat raw_results | grep "Accesses:" | sed "$((nb*15 + nb_bench*15*3 + tm_section))q;d" | sed 's/[^0-9.]//g' | tr -d '\n' >> output.csv
+			if [ ${tm_section} != 15 ]
+			then
+				echo -n "," >> output.csv
+			fi
+		done
+
+		if [ ${nb_bench} != $((NUM_BENCHS - 1)) ]
+		then
+			echo -n "," >> output.csv
+		fi
+	done
+
+	echo ";" >> output.csv
+
+	for (( nb_bench=0; nb_bench<=(NUM_BENCHS - 1); nb_bench++ ))
+	do
+		for tm_section in {1..15}
+		do
+			cat raw_results | grep "DTLB load misses:" | sed "$((nb*15 + nb_bench*15*3 + tm_section))q;d" | sed 's/[^0-9.]//g' | tr -d '\n' >> output.csv
+			if [ ${tm_section} != 15 ]
+			then
+				echo -n "," >> output.csv
+			fi
+		done
+
+		if [ ${nb_bench} != $((NUM_BENCHS - 1)) ]
+		then
+			echo -n "," >> output.csv
+		fi
+	done
+
+	echo ";" >> output.csv
+
+	for (( nb_bench=0; nb_bench<=(NUM_BENCHS - 1); nb_bench++ ))
+	do
+		for tm_section in {1..15}
+		do
+			cat raw_results | grep "DTLB store misses:" | sed "$((nb*15 + nb_bench*15*3 + tm_section))q;d" | sed 's/[^0-9.]//g' | tr -d '\n' >> output.csv
 			if [ ${tm_section} != 15 ]
 			then
 				echo -n "," >> output.csv
