@@ -10,15 +10,16 @@
 #include <sys/types.h>
 
 #include "m5op.h"
+#include "m5ops_wrapper.h"
 
 /* map_m5_mem copied from m5.c */
 void *m5_mem = NULL;
-extern int M5_inSimulator; /* M5 pseudo instructions disabled by default */
 static int M5_exitAtSimRoiEnd = 0; /* Exit simulation when SimRoiEnd */
 static long workItemCount = 0; /* work begin count */
 static int M5_globalLock = 0; /* Use single global lock instead of RTM */
 /* Barrier for synchronizing threads at ROI begin/end */
 static pthread_barrier_t barrier;
+int M5_inSimulator = 0;
 
 static void
 map_m5_mem()

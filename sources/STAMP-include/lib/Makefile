@@ -32,13 +32,17 @@ SRCS := \
     rbtree.c \
 	thread.c \
 	vector.c \
-	../gem5/m5ops_wrapper.c\
 #
 LLS := ${SRCS:.c=.ll}
 
 SRCS += ../gem5/m5op_x86.S\
+		../gem5/m5ops_wrapper.c\
+#
 
-OBJS += ../gem5/m5op_x86.o
+OBJS += ../gem5/m5op_x86.o\
+		../gem5/m5ops_wrapper.o\
+#
+
 
 PROG_TEST := \
 	test_bitmap \
