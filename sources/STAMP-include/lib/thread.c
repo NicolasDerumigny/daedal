@@ -429,10 +429,12 @@ threadWait (void* argPtr)
     ret = pthread_setaffinity_np(pthread_self(), size, cpusetp);
     assert(ret == 0);
 
-    //Performance counters: init FD
-    sprintf(msr_path, "/dev/cpu/%li/msr", threadId);
-    FD = open(msr_path, O_RDWR);
-    assert(FD > 0);
+    if(!M5_inSimulator) {
+        //Performance counters: init FD
+        sprintf(msr_path, "/dev/cpu/%li/msr", threadId);
+        FD = open(msr_path, O_RDWR);
+        assert(FD > 0);
+    }
 
     while (1) {
         THREAD_BARRIER(global_barrierPtr, threadId); /* wait for start parallel */
@@ -445,8 +447,11 @@ threadWait (void* argPtr)
             break;
         }
     }
-    ret = close(FD);
-    assert(ret == 0);
+
+    if (!M5_inSimulator) {
+        ret = close(FD);
+        assert(ret == 0);
+    }
 }
 
 long determineNumProcs()

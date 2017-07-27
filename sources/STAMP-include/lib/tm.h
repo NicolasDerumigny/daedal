@@ -306,6 +306,7 @@
     printf("Work item count: %li\n", count);	\
     fflush(NULL);				\
   } while (0)
+
 #  define TM_THREAD_ENTER()						\
   _tm_thread_context_t *_tm_thread_context = &thread_contexts[thread_getId()]; \
   do {									\
