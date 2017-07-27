@@ -76,10 +76,12 @@
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <fcntl.h>
+#include <string.h>
 #include <sys/sysinfo.h>
 #include "thread.h"
 #include "types.h"
 #include "rtm.h"
+#include "../gem5/m5ops_wrapper.h"
 
 #define MSR_MAX 4
 
@@ -108,6 +110,51 @@ volatile unsigned g_misses[15] = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
 volatile unsigned DTLB_l_misses[15] = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
 volatile unsigned DTLB_s_misses[15] = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
 volatile unsigned abort_reasons[15][6] = {{0,0,0,0,0,0}, {0,0,0,0,0,0}, {0,0,0,0,0,0}, {0,0,0,0,0,0}, {0,0,0,0,0,0}, {0,0,0,0,0,0}, {0,0,0,0,0,0}, {0,0,0,0,0,0}, {0,0,0,0,0,0}, {0,0,0,0,0,0}, {0,0,0,0,0,0}, {0,0,0,0,0,0}, {0,0,0,0,0,0}, {0,0,0,0,0,0}, {0,0,0,0,0,0}};
+
+_tm_thread_context_t *thread_contexts = NULL;
+static int M5_inSimulator = 0;
+
+
+/* =============================================================================
+ * RTM_xbegin, RTM_xend, RTM_xabort
+ * -- Intel´s RTM implementation of Transactionnal Memory
+ * =============================================================================
+ */
+long
+RTM_xbegin(long xid) {
+  long handler = 0;
+  long arg = 0;
+  long ret2;
+  asm volatile ("mov %1, %%rcx\n\t"
+                "mov %2, %%rdx\n\t"
+                "mov %3, %%rdi\n\t"
+                "xbegin   .+6 \n\t"
+                "mov %%rax, %0\n\t"
+                : "=r"(ret2)
+                : "r"(xid), "r"(handler), "r"(arg)
+                : "%rax","%rcx", "%rdx", "%rdi");
+  return ret2;
+}
+
+void
+RTM_xend(long xid) {
+  asm volatile ("mov %0,%%rcx\n\t"
+                "xend \n\t"
+                :
+                : "r"(xid)
+                : "%rcx");
+}
+
+void
+RTM_xabort(long abort_code) {
+  long code = abort_code;
+  asm volatile ("mov %0,%%rcx\n\t"
+                "xabort  $0 \n\t"
+                :
+                : "r"(code)
+                : "%rcx");
+}
+
 
 
 
@@ -144,7 +191,7 @@ inline void
 init_one_perfcounter(int number, unsigned long whatToMeasure) {
     int ret;
     off_t offset;
-    unsigned long zeros = 0;
+    unsigned long long zeros = 0;
 
     if (number >= MSR_MAX)
         return;
@@ -198,14 +245,8 @@ read_one_perfcounter(int number, unsigned * whereToPut) {
  */
 void
 RTM_init_perfcounters() {
-    // Select MSR IA32_PERFEVTSEL0
-    // Put L2_RQSTS.MISS
-    init_one_perfcounter(0, 0x413F24);
-
-    // Select MSR IA32_PERFEVTSEL1
-    // Put L2_RQSTS.REFERENCES
-    init_one_perfcounter(1, 0x41FF24);
-
+    if (M5_inSimulator)
+        return;
     // Select MSR IA32_PERFEVTSEL2
     // Put RTM_RETIRED.ABORTED_MEM
     init_one_perfcounter(2, 0x4108C9);
@@ -229,6 +270,16 @@ RTM_init_perfcounters() {
     // Select MSR IA32_PERFEVTSEL5
     // Put DTLB_STORE_MISSES.MISS_CAUSES_A_WALK
     init_one_perfcounter(7, 0x410149);
+
+
+    // Select MSR IA32_PERFEVTSEL0
+    // Put L2_RQSTS.REFERENCES
+    init_one_perfcounter(0, 0x41FF24);
+
+
+    // Select MSR IA32_PERFEVTSEL1
+    // Put L2_RQSTS.MISS
+    init_one_perfcounter(1, 0x413F24);
 }
 
 
@@ -241,30 +292,34 @@ RTM_init_perfcounters() {
  */
 void
 RTM_update_perfcounters(int i) {
+    if (M5_inSimulator)
+        return;
 
     // Read L2_RQSTS.MISS
-    read_one_perfcounter(0, (unsigned *) &g_misses[i]);
-
-    // Read L2_RQSTS.REFERENCES
-    read_one_perfcounter(1, (unsigned *) &g_accesses[i]);
-
-    // Read RTM_RETIRED.ABORTED_MEM
-    read_one_perfcounter(2, (unsigned *) &abort_reasons[2]);
-
-    // Read RTM_RETIRED.ABORTED_TIMER
-    read_one_perfcounter(3, (unsigned *) &abort_reasons[3]);
-
-    // Read RTM_RETIRED.ABORTED_MEMTYPE
-    read_one_perfcounter(4, (unsigned *) &abort_reasons[4]);
-
-    // Read RTM_RETIRED.ABORTED_EVENTS
-    read_one_perfcounter(5, (unsigned *) &abort_reasons[5]);
+    read_one_perfcounter(1, (unsigned *) &g_misses[i]);
 
     // Read DTLB_LOAD_MISSES.MISS_CAUSES_A_WALK
-    read_one_perfcounter(6, (unsigned *) &DTLB_l_misses[5]);
+    read_one_perfcounter(6, (unsigned *) &DTLB_l_misses[i]);
 
     // Read DTLB_STORE_MISSES.MISS_CAUSES_A_WALK
-    read_one_perfcounter(7, (unsigned *) &DTLB_s_misses[5]);
+    read_one_perfcounter(7, (unsigned *) &DTLB_s_misses[i]);
+
+    // Read L2_RQSTS.REFERENCES
+    read_one_perfcounter(0, (unsigned *) &g_accesses[i]);
+
+    // Read RTM_RETIRED.ABORTED_MEM
+    read_one_perfcounter(2, (unsigned *) &abort_reasons[i][2]);
+
+    // Read RTM_RETIRED.ABORTED_TIMER
+    read_one_perfcounter(3, (unsigned *) &abort_reasons[i][3]);
+
+    // Read RTM_RETIRED.ABORTED_MEMTYPE
+    read_one_perfcounter(4, (unsigned *) &abort_reasons[i][4]);
+
+    // Read RTM_RETIRED.ABORTED_EVENTS
+    read_one_perfcounter(5, (unsigned *) &abort_reasons[i][5]);
+
+
 }
 
 
@@ -392,7 +447,24 @@ threadWait (void* argPtr)
     }
     ret = close(FD);
     assert(ret == 0);
+}
 
+long determineNumProcs()
+{
+  unsigned long long int bitmask;
+  int num_procs, err;
+  cpu_set_t available_procs;
+
+  /* Set up bitmasks to possibly assign thread affinities to */
+  err = pthread_getaffinity_np(pthread_self(), sizeof(cpu_set_t), &available_procs);
+  assert(err == 0);
+  bitmask = available_procs.__bits[0];
+  num_procs = 0;
+  while (bitmask > 0) {
+    num_procs++;
+    bitmask = bitmask >> 1;
+  }
+  return num_procs;
 }
 
 
@@ -406,15 +478,46 @@ void
 thread_startup (long numThread)
 {
     long i;
+    unsigned long long int bitmask;
+    int num_procs, err;
+    cpu_set_t available_procs;
+    cpu_set_t mask, check_mask;
 
     global_numThread = numThread;
     global_doShutdown = FALSE;
+
+    /* Set up bitmasks to possibly assign thread affinities to */
+    err = pthread_getaffinity_np(pthread_self(), sizeof(cpu_set_t), &available_procs);
+    assert(err == 0);
+    bitmask = available_procs.__bits[0];
+    num_procs = 0;
+    while (bitmask > 0) {
+      num_procs++;
+      bitmask = bitmask >> 1;
+    }
+    memset(&mask, 0, sizeof(mask));
+    memset(&check_mask, 0, sizeof(check_mask));
+
 
     /* Set up barrier */
     assert(global_barrierPtr == NULL);
     global_barrierPtr = THREAD_BARRIER_ALLOC(numThread);
     assert(global_barrierPtr);
     THREAD_BARRIER_INIT(global_barrierPtr, numThread);
+
+    /*Set up thread contexts */
+    thread_contexts =
+      (_tm_thread_context_t*)malloc(numThread * sizeof(_tm_thread_context_t));
+
+    for (i = 0; i < numThread; i++)
+    {
+      thread_contexts[i].threadId = i;
+      thread_contexts[i].real_cpu = i % num_procs;
+      thread_contexts[i].numThread = numThread;
+      thread_contexts[i].inFastForward = TRUE;
+      /*thread_contexts[i].appName = appName; // XXX added appname in thread_context*/
+      /*thread_contexts[i].registers_set = 0; // so we don't recreate our TM state*/
+    }
 
     /* Set up ids */
     THREAD_LOCAL_INIT(global_threadId);

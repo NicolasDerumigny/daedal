@@ -8,14 +8,12 @@
 #include <sys/mman.h>
 #include <sys/stat.h>
 #include <sys/types.h>
-#include "../xaction/xaction_insts_x86.h"
 
-#include "../handlers/annotated_regions.h"
 #include "m5op.h"
 
 /* map_m5_mem copied from m5.c */
 void *m5_mem = NULL;
-static int M5_inSimulator = 0; /* M5 pseudo instructions disabled by default */
+extern int M5_inSimulator; /* M5 pseudo instructions disabled by default */
 static int M5_exitAtSimRoiEnd = 0; /* Exit simulation when SimRoiEnd */
 static long workItemCount = 0; /* work begin count */
 static int M5_globalLock = 0; /* Use single global lock instead of RTM */
@@ -46,9 +44,7 @@ map_m5_mem()
 
 void barrier_wait(pthread_barrier_t *barrier, int in_fast_forward)
 {
-  if (!in_fast_forward)  ANNOTATE_REGION(REG_BARRIER, REGION_ENTRY);
   pthread_barrier_wait(barrier);
-  if (!in_fast_forward)  ANNOTATE_REGION(REG_BARRIER, REGION_EXIT);
 }
 
 
@@ -108,7 +104,30 @@ int workBegin(int workid, int threadid) {
    * executing given work-unit count with KVM cpu. Fast-forward phase
    * cannot use "special instructions" (e.g xbegin, etc.)
    */
-    return m5_work_begin(workid,threadid);
+    int retVal = m5_work_begin(workid, threadid);
+    if (retVal == 2) {
+      /* m5_work_begin returns 2 when work begin checkpoint count
+       * reached while in fast-forward. Instead of letting workbegin
+       * take checkpoint immediately, we return a special value to
+       * force all threads to hit barrier, then one thread explicitly
+       * writes the checkpoint.
+       */
+      pthread_barrier_wait(&barrier);
+
+      // Take checkpoint
+      if (threadid == 0) {
+        m5_checkpoint(0,0);
+      }
+      do {
+        /* All threads now spin here forever until simulation in
+         * fast-forward mode exits. Once checkpoint restored,
+         * m5_work_begin will return 0 so these threads will be
+         * released.
+         */
+        retVal = m5_work_begin(0xffff, threadid);
+      } while (retVal > 0);
+    }
+    return retVal;
   }
   else if (M5_globalLock) {
     /* Set env variable USE_GLOBAL_LOCK to run .htm binaries outside simulator,

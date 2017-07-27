@@ -147,6 +147,8 @@ extern volatile unsigned DTLB_s_misses[15];
 extern volatile unsigned abort_reasons[15][6];
 extern _Thread_local int FD;
 
+extern _tm_thread_context_t *thread_contexts;
+
 
 
 /* =============================================================================

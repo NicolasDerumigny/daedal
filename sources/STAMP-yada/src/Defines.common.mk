@@ -34,8 +34,7 @@ SRCS_LIBS += \
 
 OBJS := ${SRCS:.c=.o}
 LIB_LLS := ${SRCS_LIBS:.c=.ll}
-LIB_OBJS := $(LIB_DIR)/abort_handlers.a \
-			$(LIB_DIR)/../gem5/m5op_x86.o \
+LIB_OBJS := $(LIB_DIR)/../gem5/m5op_x86.o \
 			$(LIB_DIR)/../gem5/m5ops_wrapper.o \
 #
 

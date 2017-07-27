@@ -287,6 +287,7 @@ sequencer_run (void* argPtr)
     i_stop = numSegment;
 #endif /* !(HTM || STM) */
     for (i = i_start; i < i_stop; i+=CHUNK_STEP1) {
+	TM_WORK_BEGIN();
         TM_BEGIN(0);
         {
             long ii;
@@ -300,6 +301,7 @@ sequencer_run (void* argPtr)
             } /* ii */
         }
         TM_END(0);
+        TM_WORK_END();
     }
 
     thread_barrier_wait();
@@ -352,6 +354,7 @@ sequencer_run (void* argPtr)
 #endif /* !(HTM || STM) */
 
     for (i = i_start; i < i_stop; i++) {
+        TM_WORK_BEGIN();
 
         list_t* chainPtr = uniqueSegmentsPtr->buckets[i];
         list_iter_t it;
@@ -414,6 +417,7 @@ sequencer_run (void* argPtr)
             TM_END(3);
             assert(status);
         }
+        TM_WORK_END();
     }
 
     thread_barrier_wait();
@@ -422,6 +426,7 @@ sequencer_run (void* argPtr)
      * Step 2b: Match ends to starts by using hash-based string comparison.
      */
     for (substringLength = segmentLength-1; substringLength > 0; substringLength--) {
+        TM_WORK_BEGIN();
 
         table_t* startHashToConstructEntryTablePtr =
             startHashToConstructEntryTables[substringLength];
@@ -563,6 +568,7 @@ sequencer_run (void* argPtr)
 
         thread_barrier_wait();
 
+        TM_WORK_END();
     } /* for (substringLength > 0) */
 
 

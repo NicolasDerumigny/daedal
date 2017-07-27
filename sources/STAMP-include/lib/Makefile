@@ -33,16 +33,11 @@ SRCS := \
 	thread.c \
 	vector.c \
 	../gem5/m5ops_wrapper.c\
-	../handlers/abort_handlers.c\
-	../handlers/mt19937ar_1.c\
-	../handlers/spinlock.c
 #
 LLS := ${SRCS:.c=.ll}
 
-SRCS += ../handlers/abort_handlers.c
 SRCS += ../gem5/m5op_x86.S\
 
-OBJS += abort_handlers.a
 OBJS += ../gem5/m5op_x86.o
 
 PROG_TEST := \
@@ -76,8 +71,6 @@ all: $(OBJS) $(LLS)
 %.ll: %.c
 	$(CC) $(CFLAGS) $^ -S -emit-llvm -o $@
 
-abort_handlers.a: ../handlers/abort_handlers.o ../handlers/mt19937ar_1.o ../handlers/spinlock.o
-	${AR} ${AR_FLAGS} $@ $^
 
 
 .PHONY: clean

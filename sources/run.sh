@@ -32,14 +32,14 @@ do
 	#Genome
 	for ss_nb in 0 1
 	do
-		cat raw_results | head -n 2000 | grep "Time =" | sed "$((nb + ss_nb*3))q;d" | sed 's/[^0-9.]//g' | tr -d '\n' >> output.csv
+		cat raw_results | head -n 2900 | grep "Time =" | sed "$((nb + ss_nb*3))q;d" | sed 's/[^0-9.]//g' | tr -d '\n' >> output.csv
 		echo -n "," >> output.csv
 	done
 
 	#Intruder
 	for ss_nb in 0 1
 	do
-		cat raw_results | head -n 2500 | grep "Elapsed time    =" | sed "$((nb + ss_nb*3))q;d" | sed 's/[^0-9.]//g' | tr -d '\n' >> output.csv
+		cat raw_results | head -n 3500 | grep "Elapsed time    =" | sed "$((nb + ss_nb*3))q;d" | sed 's/[^0-9.]//g' | tr -d '\n' >> output.csv
 		echo -n "," >> output.csv
 	done
 
@@ -53,19 +53,19 @@ do
 	#Labyrinth
 	for ss_nb in 0
 	do
-		cat raw_results | tail -n 3500 | grep "Elapsed time    =" | sed "$((nb + ss_nb*3))q;d" | sed 's/[^0-9.]//g' | tr -d '\n' >> output.csv
+		cat raw_results | tail -n 4000 | grep "Elapsed time    =" | sed "$((nb + ss_nb*3))q;d" | sed 's/[^0-9.]//g' | tr -d '\n' >> output.csv
 		echo -n "," >> output.csv
 	done
 
 	#SSCA2
 	for ss_nb in 0 1
 	do
-		cat raw_results | grep "Time taken for Scalable Data Generation is " | sed "$((nb + ss_nb*3))q;d" | sed 's/Time taken for Scalable Data Generation is  //g' | sed 's/ sec.//g' | tr -d '\n' >> output.csv
+		cat raw_results | grep "Time taken for Scalable Data Generation is " | sed "$((nb + ss_nb*3))q;d" | sed 's/Time taken for Scalable Data Generation is //g' | sed 's/ sec.//g' | tr -d '\n' >> output.csv
 		echo -n "," >> output.csv
-		cat raw_results | grep "Time taken for kernel 1 is" | sed "$((nb + ss_nb*3))q;d" | sed 's/Time taken for kernel 1 is  //g' | sed 's/ sec.//g' | tr -d '\n' >> output.csv
+		cat raw_results | grep "Time taken for kernel 1 is" | sed "$((nb + ss_nb*3))q;d" | sed 's/Time taken for kernel 1 is //g' | sed 's/ sec.//g' | tr -d '\n' >> output.csv
 		echo -n "," >> output.csv
 
-		cat raw_results | grep "Time taken for all is" | sed "$((nb + ss_nb*3))q;d" | sed 's/Time taken for all is  //g' | sed 's/ sec.//g' | tr -d '\n' >> output.csv
+		cat raw_results | grep "Time taken for all is" | sed "$((nb + ss_nb*3))q;d" | sed 's/Time taken for all is //g' | sed 's/ sec.//g' | tr -d '\n' >> output.csv
 		echo -n "," >> output.csv
 	done
 
@@ -240,6 +240,8 @@ do
 			echo -n "," >> output.csv
 		fi
 	done
+
+	echo ";" >> output.csv
 
 	echo ";" >> output.csv
 done

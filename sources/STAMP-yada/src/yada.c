@@ -201,6 +201,7 @@ process ()
     assert(regionPtr);
 
     while (1) {
+        TM_WORK_BEGIN();
 
         element_t* elementPtr;
 
@@ -249,6 +250,7 @@ process ()
 
         numProcess++;
 
+        TM_WORK_END();
     }
 
     TM_BEGIN(5);

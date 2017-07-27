@@ -284,8 +284,8 @@
 #  include "memory.h"
 #  include "thread.h"
 #  include "types.h"
-
 #  include "rtm.h"
+#  include "../gem5/m5ops_wrapper.h"
 
 #  define TM_ARG                        /* nothing */
 #  define TM_ARG_ALONE                  /* nothing */
@@ -293,11 +293,40 @@
 #  define TM_ARGDECL_ALONE              /* nothing */
 #  define TM_CALLABLE                   /* nothing */
 
-#  define TM_STARTUP(numThread)         /*CPUID_RTM_CHECK;*/ RTM_spinlock_init()
-#  define TM_SHUTDOWN()                 /* nothing */
+#  define TM_STARTUP(numThreads)  \
+  do {						\
+    CPUID_RTM_CHECK;\
+    RTM_spinlock_init();\
+    SimStartup(numThreads);		\
+  }while (0)
 
-#  define TM_THREAD_ENTER()             /* nothing */
-#  define TM_THREAD_EXIT()              /* nothing */
+#  define TM_SHUTDOWN()				\
+  do {						\
+    long count = getWorkItemCount();		\
+    printf("Work item count: %li\n", count);	\
+    fflush(NULL);				\
+  } while (0)
+#  define TM_THREAD_ENTER()						\
+  _tm_thread_context_t *_tm_thread_context = &thread_contexts[thread_getId()]; \
+  do {									\
+    SimRoiStart(thread_getId());					\
+  }while (0)
+
+#  define TM_THREAD_EXIT()			\
+  do {						\
+    SimRoiEnd(thread_getId(), _tm_thread_context->inFastForward);	\
+  }while (0)
+
+#  define TM_WORK_BEGIN()					\
+  do {								\
+    int threadId= _tm_thread_context->threadId;			\
+    _tm_thread_context->inFastForward = workBegin(0, threadId);	\
+  }while (0)
+
+#  define TM_WORK_END()						\
+  do {								\
+    workEnd(0, 0);						\
+  }while (0)
 #  define TM_BEGIN_WAIVER()
 #  define TM_END_WAIVER()
 
@@ -336,17 +365,17 @@
                                                 RTM_fallback_lock(); \
                                                 ++g_locks[i];      \
                                               } else {             \
-                                                __status = _xbegin();\
+                                                __status = RTM_xbegin(i);\
                                                 if (__status != XBEGIN_STARTED)\
                                                   goto failure;    \
                                                 if (RTM_fallback_isLocked())\
-                                                  _xabort(0xab);\
+                                                  RTM_xabort(0xab);\
                                               }
                                                        
                                               
 
 #       define TM_END(i)                      if (tries > 0) {     \
-                                                _xend();           \
+                                                RTM_xend(i);       \
                                                 ++g_succeed[i];    \
                                               } else {             \
                                                 RTM_fallback_unlock(); \

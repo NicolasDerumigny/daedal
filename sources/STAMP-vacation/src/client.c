@@ -176,6 +176,7 @@ client_run (void* argPtr)
     long i;
 
     for (i = 0; i < numOperation; i++) {
+        TM_WORK_BEGIN();
 
         long r = random_generate(randomPtr) % 100;
         action_t action = selectAction(r, percentUser);
@@ -311,6 +312,7 @@ client_run (void* argPtr)
 
         } /* switch (action) */
 
+        TM_WORK_END();
     } /* for i */
 
     TM_THREAD_EXIT();

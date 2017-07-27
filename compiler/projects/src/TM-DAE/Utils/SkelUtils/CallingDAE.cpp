@@ -41,8 +41,8 @@
 using namespace llvm;
 using namespace std;
 
-#define TM_BEGIN_X86 "llvm.x86.xbegin"
-#define TM_END_X86 "llvm.x86.xend"
+#define TM_BEGIN_X86 "RTM_xbegin"
+#define TM_END_X86 "RTM_xend"
 #define RTM_UNLOCK "RTM_fallback_unlock"
 #define RTM_LOCK "RTM_fallback_lock"
 

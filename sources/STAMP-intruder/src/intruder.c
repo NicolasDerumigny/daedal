@@ -194,7 +194,7 @@ processPackets (void* argPtr)
     vector_t* errorVectorPtr = errorVectors[threadId];
 
     while (1) {
-
+        TM_WORK_BEGIN();
         char* bytes;
         TM_BEGIN(0);
         bytes = TMSTREAM_GETPACKET(streamPtr);
@@ -235,7 +235,7 @@ processPackets (void* argPtr)
                 assert(status);
             }
         }
-
+        TM_WORK_END();
     }
 
     PDETECTOR_FREE(detectorPtr);

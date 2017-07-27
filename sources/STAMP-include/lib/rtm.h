@@ -36,9 +36,10 @@
 #define XABORT_STATUS(x)    (((x) >> 24) & 0xff)
 
 #ifdef OLD_RTM_MACROSES
-
-    #include <immintrin.h>
-
+    // defined in thread.c
+    long RTM_xbegin(long xid);
+    void RTM_xend(long xid);
+    void RTM_xabort(long abort_code);
 #endif // OLD_RTM_MACROSES
 
 #define XABORT(status) asm volatile(".byte 0xc6,0xf8,%P0" :: "i" (status))
