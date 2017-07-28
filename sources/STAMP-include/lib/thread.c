@@ -114,47 +114,6 @@ volatile unsigned abort_reasons[15][6] = {{0,0,0,0,0,0}, {0,0,0,0,0,0}, {0,0,0,0
 _tm_thread_context_t *thread_contexts = NULL;
 
 
-/* =============================================================================
- * RTM_xbegin, RTM_xend, RTM_xabort
- * -- Intel´s RTM implementation of Transactionnal Memory
- * =============================================================================
- */
-long
-RTM_xbegin(long xid) {
-  long handler = 0;
-  long arg = 0;
-  long ret2;
-  asm volatile ("mov %1, %%rcx\n\t"
-                "mov %2, %%rdx\n\t"
-                "mov %3, %%rdi\n\t"
-                "xbegin   .+6 \n\t"
-                "mov %%rax, %0\n\t"
-                : "=r"(ret2)
-                : "r"(xid), "r"(handler), "r"(arg)
-                : "%rax","%rcx", "%rdx", "%rdi");
-  return ret2;
-}
-
-void
-RTM_xend(long xid) {
-  asm volatile ("mov %0,%%rcx\n\t"
-                "xend \n\t"
-                :
-                : "r"(xid)
-                : "%rcx");
-}
-
-void
-RTM_xabort(long abort_code) {
-  long code = abort_code;
-  asm volatile ("mov %0,%%rcx\n\t"
-                "xabort  $0 \n\t"
-                :
-                : "r"(code)
-                : "%rcx");
-}
-
-
 
 
 /* =============================================================================

@@ -39,7 +39,7 @@ do
 	#Intruder
 	for ss_nb in 0 1
 	do
-		cat raw_results | head -n 3500 | grep "Elapsed time    =" | sed "$((nb + ss_nb*3))q;d" | sed 's/[^0-9.]//g' | tr -d '\n' >> output.csv
+		cat raw_results | head -n 3700 | grep "Elapsed time    =" | sed "$((nb + ss_nb*3))q;d" | sed 's/[^0-9.]//g' | tr -d '\n' >> output.csv
 		echo -n "," >> output.csv
 	done
 

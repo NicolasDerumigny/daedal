@@ -36,10 +36,44 @@
 #define XABORT_STATUS(x)    (((x) >> 24) & 0xff)
 
 #ifdef OLD_RTM_MACROSES
-    // defined in thread.c
-    long RTM_xbegin(long xid);
-    void RTM_xend(long xid);
-    void RTM_xabort(long abort_code);
+/* =============================================================================
+ * RTM_xbegin, RTM_xend, RTM_xabort
+ * -- Intel´s RTM implementation of Transactionnal Memory
+ * =============================================================================
+ */
+__attribute__((__always_inline__)) inline long
+RTM_xbegin(long xid) {
+  long handler = 0;
+  long arg = 0;
+  long ret = XBEGIN_STARTED;
+  asm volatile ("mov %0, %%rcx\n\t"
+                "mov %1, %%rdx\n\t"
+                "mov %2, %%rdi\n\t"
+                "xbegin   .+6 \n\t"
+                : "+a"(ret)
+                : "r"(xid), "r"(handler), "r"(arg)
+                : "%rax","%rcx", "%rdx", "%rdi");
+  return ret;
+}
+
+__attribute__((__always_inline__)) inline void
+RTM_xend(long xid) {
+  asm volatile ("mov %0,%%rcx\n\t"
+                "xend \n\t"
+                :
+                : "r"(xid)
+                : "%rcx");
+}
+
+__attribute__((__always_inline__)) inline void
+RTM_xabort(long abort_code) {
+  long code = abort_code;
+  asm volatile ("mov %0,%%rcx\n\t"
+                "xabort  $0 \n\t"
+                :
+                : "r"(code)
+                : "%rcx");
+}
 #endif // OLD_RTM_MACROSES
 
 #define XABORT(status) asm volatile(".byte 0xc6,0xf8,%P0" :: "i" (status))

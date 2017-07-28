@@ -41,8 +41,8 @@
 using namespace llvm;
 using namespace std;
 
-#define TM_BEGIN_X86 "RTM_xbegin"
-#define TM_END_X86 "RTM_xend"
+#define TM_BEGIN_X86 "mov $0, %rcx\n\tmov $1, %rdx\n\tmov $2, %rdi\n\txbegin   .+6 \n\t"
+#define TM_END_X86 "mov $0,%rcx\n\txend \n\t"
 #define RTM_UNLOCK "RTM_fallback_unlock"
 #define RTM_LOCK "RTM_fallback_lock"
 
@@ -558,10 +558,10 @@ Instruction* getInsertPoint(Instruction* I, DominatorTree * DT) {
 // nullptr otherwise
 Instruction* isBeginTM(BasicBlock* BB) {
 	for (BasicBlock::iterator I = BB->begin(), E = BB->end(); I != E; ++I){
-		if(isa<CallInst>(I) && cast<CallInst> (I) -> getCalledFunction() 
-			 && cast<CallInst> (I) -> getCalledFunction() ->	hasName()
-			 && cast<CallInst> (I) -> getCalledFunction() -> getName() == TM_BEGIN_X86) {
-			return &(*I);
+		if(isa<CallInst>(I) && cast<CallInst>(I) -> isInlineAsm()) {
+			if(isa<InlineAsm> (cast<CallInst>(I)->getCalledValue()) &&
+				cast<InlineAsm>(cast<CallInst>(I)->getCalledValue())->getAsmString() == TM_BEGIN_X86)
+				return &(*I);
 		} else 	if(isa<CallInst>(I) && cast<CallInst> (I) -> getCalledFunction() 
 			 && cast<CallInst> (I) -> getCalledFunction() ->	hasName()
 			 && cast<CallInst> (I) -> getCalledFunction() -> getName() == "beginTransaction") {
@@ -576,6 +576,11 @@ Instruction* isBeginTM(BasicBlock* BB) {
 // is any, nullptr otherwise
 Instruction* isEndTMOrLock(BasicBlock* BB) {
 	for (BasicBlock::iterator I = BB->begin(), E = BB->end(); I != E; ++I) {
+		if(isa<CallInst>(I) && cast<CallInst>(I) -> isInlineAsm()) {
+			if(isa<InlineAsm> (cast<CallInst>(I)->getCalledValue()) &&
+				cast<InlineAsm>(cast<CallInst>(I)->getCalledValue())->getAsmString() == TM_END_X86)
+				 return &(*I);
+		}
 		if( isa<CallInst>(I) && ! (cast<CallInst>(I) -> isInlineAsm())) {
 			if (auto* CstExpr = dyn_cast<ConstantExpr>(I->getOperand(0))) {
 				if (CstExpr->isCast()) {
@@ -584,8 +589,7 @@ Instruction* isEndTMOrLock(BasicBlock* BB) {
 					Fun -> getName() == "pthread_mutex_lock" ||
 					Fun -> getName() == "commitTransaction" ||
 					Fun -> getName() == RTM_UNLOCK ||
-					Fun -> getName() == RTM_LOCK ||
-					Fun -> getName() == TM_END_X86)
+					Fun -> getName() == RTM_LOCK)
 						return &(*I);
 					// if this is a call bitcast, get the real function and figure out
 					continue;
@@ -615,11 +619,6 @@ Instruction* isEndTMOrLock(BasicBlock* BB) {
 			if(isa<CallInst>(I) && cast<CallInst> (I) -> getCalledFunction() -> 
 				hasName() && cast<CallInst> (I) -> getCalledFunction() -> 
 				getName() == "commitTransaction") {
-				return &(*I);
-			}
-			if(isa<CallInst>(I) && cast<CallInst> (I) -> getCalledFunction() -> 
-				hasName() && cast<CallInst> (I) -> getCalledFunction() -> 
-				getName() == TM_END_X86) {
 				return &(*I);
 			}
 		}
