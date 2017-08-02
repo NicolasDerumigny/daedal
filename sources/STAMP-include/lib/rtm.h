@@ -43,21 +43,20 @@
  */
 __attribute__((__always_inline__)) inline long
 RTM_xbegin(long xid) {
-  long handler = 0;
-  long arg = 0;
-  long ret = XBEGIN_STARTED;
+  unsigned long long handler = 0;
+  unsigned long long ret = XBEGIN_STARTED;
   asm volatile ("mov %0, %%rcx\n\t"
                 "mov %1, %%rdx\n\t"
                 "mov %2, %%rdi\n\t"
                 "xbegin   .+6 \n\t"
                 : "+a"(ret)
-                : "r"(xid), "r"(handler), "r"(arg)
+                : "r"(xid), "r"(handler), "r"(xid)
                 : "%rax","%rcx", "%rdx", "%rdi");
   return ret;
 }
 
 __attribute__((__always_inline__)) inline void
-RTM_xend(long xid) {
+RTM_xend(unsigned long long xid) {
   asm volatile ("mov %0,%%rcx\n\t"
                 "xend \n\t"
                 :
@@ -66,12 +65,11 @@ RTM_xend(long xid) {
 }
 
 __attribute__((__always_inline__)) inline void
-RTM_xabort(long abort_code) {
-  long code = abort_code;
+RTM_xabort(unsigned long long abort_code) {
   asm volatile ("mov %0,%%rcx\n\t"
                 "xabort  $0 \n\t"
                 :
-                : "r"(code)
+                : "r"(abort_code)
                 : "%rcx");
 }
 #endif // OLD_RTM_MACROSES

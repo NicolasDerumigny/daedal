@@ -83,7 +83,7 @@
 #include "rtm.h"
 #include "../gem5/m5ops_wrapper.h"
 
-#define MSR_MAX 4
+#define MSR_MAX 8
 
 static THREAD_LOCAL_T    global_threadId;
 static long              global_numThread       = 1;
@@ -107,8 +107,6 @@ volatile unsigned g_aborts[15] = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
 volatile unsigned g_accesses[15] = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
 volatile unsigned g_succeed[15] = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
 volatile unsigned g_misses[15] = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
-volatile unsigned DTLB_l_misses[15] = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
-volatile unsigned DTLB_s_misses[15] = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
 volatile unsigned abort_reasons[15][6] = {{0,0,0,0,0,0}, {0,0,0,0,0,0}, {0,0,0,0,0,0}, {0,0,0,0,0,0}, {0,0,0,0,0,0}, {0,0,0,0,0,0}, {0,0,0,0,0,0}, {0,0,0,0,0,0}, {0,0,0,0,0,0}, {0,0,0,0,0,0}, {0,0,0,0,0,0}, {0,0,0,0,0,0}, {0,0,0,0,0,0}, {0,0,0,0,0,0}, {0,0,0,0,0,0}};
 
 _tm_thread_context_t *thread_contexts = NULL;
@@ -124,14 +122,12 @@ _tm_thread_context_t *thread_contexts = NULL;
 void
 RTM_output_stats() {
     for (int i=0;i<15;++i) {
-      printf("Locks: %i\n", g_locks[i]);
-      printf("Commits: %i\n", g_succeed[i]);
-      printf("Aborts: %i\n", g_aborts[i]);
-      printf("Misses: %i\n", g_misses[i]);
-      printf("Accesses: %i\n", g_accesses[i]);
-      printf("DTLB load misses: %i\n", DTLB_l_misses[i]);
-      printf("DTLB store misses: %i\n", DTLB_s_misses[i]);
-      for (int j=0;j<6;++j)printf("Reason: %i\n", abort_reasons[i][j]);
+      printf("Locks: %u\n", g_locks[i]);
+      printf("Commits: %u\n", g_succeed[i]);
+      printf("Aborts: %u\n", g_aborts[i]);
+      printf("Misses: %u\n", g_misses[i]);
+      printf("Accesses: %u\n", g_accesses[i]);
+      for (int j=0;j<6;++j)printf("Reason: %u\n", abort_reasons[i][j]);
     }
 }
 
@@ -149,9 +145,11 @@ inline void
 init_one_perfcounter(int number, unsigned long whatToMeasure) {
     int ret;
     off_t offset;
-    unsigned long long zeros = 0;
+    void * zeros;
+    zeros = malloc(8);
+    memset(zeros, 0, 8);
 
-    if (number >= MSR_MAX)
+    if (number >= MSR_MAX || number < 0)
         return;
 
     // Select MSR IA32_PERFEVTSEL(number)
@@ -162,8 +160,9 @@ init_one_perfcounter(int number, unsigned long whatToMeasure) {
     // Select MSR IA32_PMC NUM
     offset = lseek(FD, 0xc1 + number, SEEK_SET);
     // Reset the counter
-    ret = write(FD, (void *) &zeros, 8);
+    ret = write(FD, zeros, 8);
     assert(ret > 0);
+    free(zeros);
 }
 
 
@@ -181,8 +180,7 @@ read_one_perfcounter(int number, unsigned * whereToPut) {
     off_t offset;
     unsigned long stats;
 
-
-    if (number >= MSR_MAX)
+    if (number >= MSR_MAX || number < 0)
         return;
 
     // Select MSR IA32_PMC(number)
@@ -190,8 +188,10 @@ read_one_perfcounter(int number, unsigned * whereToPut) {
     assert(offset>0);
     // Read the counter
     ret = read(FD,(void *) &stats, 8);
-    assert(ret>0);
-    (*whereToPut) += stats;
+    
+    assert(ret > 0);
+
+    __sync_fetch_and_add(whereToPut, stats);
 }
 
 /* =============================================================================
@@ -214,26 +214,20 @@ RTM_init_perfcounters() {
     init_one_perfcounter(3, 0x4110C9);
 
     // Select MSR IA32_PERFEVTSEL4
+    // Put RTM_RETIRED.ABORTED_UNFRIENDLY
+    init_one_perfcounter(4, 0x4120C9);
+
+    // Select MSR IA32_PERFEVTSEL5
     // Put RTM_RETIRED.ABORTED_MEMTYPE
-    init_one_perfcounter(4, 0x4140C9);
+    init_one_perfcounter(5, 0x4140C9);
 
-    // Select MSR IA32_PERFEVTSEL5
+    // Select MSR IA32_PERFEVTSEL7
     // Put RTM_RETIRED.ABORTED_EVENTS
-    init_one_perfcounter(5, 0x4180C9);
-
-    // Select MSR IA32_PERFEVTSEL5
-    // Put DTLB_LOAD_MISSES.MISS_CAUSES_A_WALK
-    init_one_perfcounter(6, 0x410108);
-
-    // Select MSR IA32_PERFEVTSEL5
-    // Put DTLB_STORE_MISSES.MISS_CAUSES_A_WALK
-    init_one_perfcounter(7, 0x410149);
-
+    init_one_perfcounter(6, 0x4180C9);
 
     // Select MSR IA32_PERFEVTSEL0
     // Put L2_RQSTS.REFERENCES
     init_one_perfcounter(0, 0x41FF24);
-
 
     // Select MSR IA32_PERFEVTSEL1
     // Put L2_RQSTS.MISS
@@ -256,28 +250,23 @@ RTM_update_perfcounters(int i) {
     // Read L2_RQSTS.MISS
     read_one_perfcounter(1, (unsigned *) &g_misses[i]);
 
-    // Read DTLB_LOAD_MISSES.MISS_CAUSES_A_WALK
-    read_one_perfcounter(6, (unsigned *) &DTLB_l_misses[i]);
-
-    // Read DTLB_STORE_MISSES.MISS_CAUSES_A_WALK
-    read_one_perfcounter(7, (unsigned *) &DTLB_s_misses[i]);
-
     // Read L2_RQSTS.REFERENCES
     read_one_perfcounter(0, (unsigned *) &g_accesses[i]);
 
     // Read RTM_RETIRED.ABORTED_MEM
-    read_one_perfcounter(2, (unsigned *) &abort_reasons[i][2]);
+    read_one_perfcounter(2, (unsigned *) &abort_reasons[i][1]);
 
     // Read RTM_RETIRED.ABORTED_TIMER
-    read_one_perfcounter(3, (unsigned *) &abort_reasons[i][3]);
+    read_one_perfcounter(3, (unsigned *) &abort_reasons[i][2]);
+
+    // Read RTM_RETIRED.ABORTED_UNFRIENDLY
+    read_one_perfcounter(4, (unsigned *) &abort_reasons[i][3]);
 
     // Read RTM_RETIRED.ABORTED_MEMTYPE
-    read_one_perfcounter(4, (unsigned *) &abort_reasons[i][4]);
+    read_one_perfcounter(5, (unsigned *) &abort_reasons[i][4]);
 
     // Read RTM_RETIRED.ABORTED_EVENTS
-    read_one_perfcounter(5, (unsigned *) &abort_reasons[i][5]);
-
-
+    read_one_perfcounter(6, (unsigned *) &abort_reasons[i][5]);
 }
 
 
@@ -353,11 +342,9 @@ int
 update_reasons(unsigned status, int i) {
   if (status == XBEGIN_STARTED)
     return 0;
-  ++g_aborts[i];
+  __sync_fetch_and_add(&g_aborts[i], 1);
   //XAbort()
-  abort_reasons[i][0]+=status & 1;
-  //Overflow
-  abort_reasons[i][1]+=(status >> 3) & 1;
+  __sync_fetch_and_add(&abort_reasons[i][0], status & 1);
   return 1;
 }
 
@@ -383,7 +370,7 @@ threadWait (void* argPtr)
     assert(cpusetp != NULL);
     size = CPU_ALLOC_SIZE(get_nprocs());
     CPU_ZERO_S(size, cpusetp);
-    CPU_SET_S((int) global_threadId, size, cpusetp);
+    CPU_SET_S((int) threadId, size, cpusetp);
     ret = pthread_setaffinity_np(pthread_self(), size, cpusetp);
     assert(ret == 0);
 

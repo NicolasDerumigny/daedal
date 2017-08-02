@@ -142,8 +142,6 @@ extern volatile unsigned g_accesses[15];
 extern volatile unsigned g_aborts[15];
 extern volatile unsigned g_succeed[15];
 extern volatile unsigned g_misses[15];
-extern volatile unsigned DTLB_l_misses[15];
-extern volatile unsigned DTLB_s_misses[15];
 extern volatile unsigned abort_reasons[15][6];
 extern _Thread_local int FD;
 

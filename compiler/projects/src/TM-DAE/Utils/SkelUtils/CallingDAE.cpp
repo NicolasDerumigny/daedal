@@ -201,12 +201,12 @@ void insertCallToAccessFunctionBeforeTM(
 			I->setCalledFunction(execute);
 		}
 
-	//Place the accesses
-	for(BasicBlock * BB : bTS) {
+	//Don't place the accesses
+/*	for(BasicBlock * BB : bTS) {
 		IRBuilder<> build(BB);
 		build.SetInsertPoint(getInsertPoint(isBeginTM(BB), DT));
 		CallInst * ci = build.CreateCall(access, ArrayRef <Value *> (funArgs[BB]));
-	}
+	}*/
 }
 
 

@@ -2,7 +2,7 @@
 
 
 # Run all the STAMP benchs
-
+trap "exit" INT
 
 
 cd bin

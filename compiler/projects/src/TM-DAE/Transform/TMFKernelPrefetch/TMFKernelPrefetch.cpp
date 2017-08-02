@@ -459,9 +459,9 @@ protected:
 		return succeeded;
 	}
 
-	// Put the Access Phase outside the TM section. If no load is
-	// eligible to do so, prefetch put it the normal way (right before
-	// the loop)
+	// Put the Access Phase before the loop. If the access phase cam
+	// be put outside the TM section, then do nothing as it is already handled
+	// by TM-Arg
 	bool swoopifyCore(Function &F, list<LoadInst*> toPref, 
 		bool forceNotTM = false) {
 		Function *access = &F; 
@@ -537,6 +537,10 @@ protected:
 			if (DontUseTM || forceNotTM) {
 				insertCallToAccessFunctionSequential(access, execute);
 			} else {
+				// Used to put access phase before the TM_BEGIN(), but this
+				// create doubles with TM-Arg
+				// So we just put a message and exit
+				printStart()<<"Loads already handled by TM-Arg, nothing is done...\n";
 				insertCallToAccessFunctionBeforeTM(bTS, access, execute, funArgs, DT);
 			}
 			return true;

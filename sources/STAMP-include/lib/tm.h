@@ -364,25 +364,25 @@
                                               --tries;             \
                                               if (tries <= 0) {    \
                                                 RTM_fallback_lock(); \
-                                                ++g_locks[i];      \
+                                                __sync_fetch_and_add(&g_locks[i],1);\
                                               } else {             \
                                                 __status = RTM_xbegin(i);\
                                                 if (__status != XBEGIN_STARTED)\
                                                   goto failure;    \
                                                 if (RTM_fallback_isLocked())\
-                                                  RTM_xabort(0xab);\
+                                                  RTM_xabort(0xff);\
                                               }
                                                        
                                               
 
 #       define TM_END(i)                      if (tries > 0) {     \
                                                 RTM_xend(i);       \
-                                                ++g_succeed[i];    \
+                                                __sync_fetch_and_add(&g_succeed[i],1);\
                                               } else {             \
                                                 RTM_fallback_unlock(); \
                                               }                    \
                                               RTM_update_perfcounters(i);\
-                                            };
+                                            }
 
 #    else //OLD_RTM_MACROSES
 #       define TM_BEGIN()                    { __label__ failure;  \
