@@ -204,7 +204,8 @@ read_one_perfcounter(int number, unsigned * whereToPut) {
 void
 RTM_init_perfcounters() {
     if (M5_inSimulator)
-        return;
+        return
+
     // Select MSR IA32_PERFEVTSEL2
     // Put RTM_RETIRED.ABORTED_MEM
     init_one_perfcounter(2, 0x4108C9);
@@ -225,9 +226,15 @@ RTM_init_perfcounters() {
     // Put RTM_RETIRED.ABORTED_EVENTS
     init_one_perfcounter(6, 0x4180C9);
 
+    // ----- HASSWELL PERF COUNTERS -----
     // Select MSR IA32_PERFEVTSEL0
     // Put L2_RQSTS.REFERENCES
     init_one_perfcounter(0, 0x41FF24);
+
+    // ----- SKYLAKE PERF COUNTERS -----
+    // Select MSR IA32_PERFEVTSEL0
+    // Put L2_RQSTS.REFERENCES
+    //init_one_perfcounter(0, 0x41EF24);
 
     // Select MSR IA32_PERFEVTSEL1
     // Put L2_RQSTS.MISS
