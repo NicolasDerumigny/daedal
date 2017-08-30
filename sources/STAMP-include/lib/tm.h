@@ -357,14 +357,15 @@
 #       define TM_BEGIN(i)                   {                     \
                                               __label__ failure;   \
                                               unsigned __status = XBEGIN_STARTED;\
-                                              int tries = 4;       \
-                                              RTM_init_perfcounters();\
+                                              int tries = 9;/* one more*/ \
+                                              /*RTM_init_perfcounters();*/\
                                               failure:             \
-                                              update_reasons(__status, i);\
+                                              /*update_reasons(__status, i);*/\
+                                              while (RTM_fallback_isLocked())_mm_pause();\
                                               --tries;             \
                                               if (tries <= 0) {    \
                                                 RTM_fallback_lock(); \
-                                                __sync_fetch_and_add(&g_locks[i],1);\
+                                                /*__sync_fetch_and_add(&g_locks[i],1);*/\
                                               } else {             \
                                                 __status = RTM_xbegin(i);\
                                                 if (__status != XBEGIN_STARTED)\
@@ -377,11 +378,11 @@
 
 #       define TM_END(i)                      if (tries > 0) {     \
                                                 RTM_xend(i);       \
-                                                __sync_fetch_and_add(&g_succeed[i],1);\
+                                                /*__sync_fetch_and_add(&g_succeed[i],1);*/\
                                               } else {             \
                                                 RTM_fallback_unlock(); \
                                               }                    \
-                                              RTM_update_perfcounters(i);\
+                                              /*RTM_update_perfcounters(i);*/\
                                             }
 
 #    else //OLD_RTM_MACROSES

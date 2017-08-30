@@ -121,6 +121,7 @@ _tm_thread_context_t *thread_contexts = NULL;
  */
 void
 RTM_output_stats() {
+	return;
     for (int i=0;i<15;++i) {
       printf("Locks: %u\n", g_locks[i]);
       printf("Commits: %u\n", g_succeed[i]);
@@ -372,6 +373,7 @@ threadWait (void* argPtr)
 
     THREAD_LOCAL_SET(global_threadId, (long)threadId);
 
+    /*
     //Performance counters: set affinity
     cpusetp = CPU_ALLOC(get_nprocs());
     assert(cpusetp != NULL);
@@ -387,6 +389,7 @@ threadWait (void* argPtr)
         FD = open(msr_path, O_RDWR);
         assert(FD > 0);
     }
+    */
 
     while (1) {
         THREAD_BARRIER(global_barrierPtr, threadId); /* wait for start parallel */
@@ -400,10 +403,10 @@ threadWait (void* argPtr)
         }
     }
 
-    if (!M5_inSimulator) {
+    /*if (!M5_inSimulator) {
         ret = close(FD);
         assert(ret == 0);
-    }
+    }*/
 }
 
 long determineNumProcs()
