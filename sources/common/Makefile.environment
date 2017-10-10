@@ -5,4 +5,4 @@
 #
 
 COMPILER_LIB=$(HOME)/daedal/compiler/build/projects-build/lib
-LLVM_BIN=$(HOME)/daedal/compiler/build/llvm-build/bin/
+LLVM_BIN=$(HOME)/daedal/compiler/build/llvm-build/bin

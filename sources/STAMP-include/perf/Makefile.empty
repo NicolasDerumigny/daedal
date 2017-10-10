@@ -1,0 +1,24 @@
+#
+# Makefile for the library
+#
+
+LIB        = ../lib
+GEM5       = ../gem5
+
+CFLAGS    += -O3 -Wall
+CFLAGS    += -I$(GEM5) 
+
+CC        := gcc
+LD        := gcc
+
+CFLAGS    += -O3 -Wall
+
+OBJS = perf_counters.o 
+
+all: ${OBJS}
+
+%.o: %.c
+	${CC} ${CFLAGS} -c $< -o $@
+
+clean:
+	rm -f *.o

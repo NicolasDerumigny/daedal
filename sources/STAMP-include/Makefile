@@ -1,0 +1,9 @@
+TOPTARGETS := all clean
+
+SUBDIRS := lib gem5
+
+$(TOPTARGETS): $(SUBDIRS)
+$(SUBDIRS):
+	$(MAKE) -C $@ $(MAKECMDGOALS)
+
+.PHONY: $(TOPTARGETS) $(SUBDIRS)

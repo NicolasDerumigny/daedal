@@ -1,0 +1,37 @@
+#
+# Makefile for the library
+#
+
+LIB        = ../lib
+GEM5       = ../gem5
+PERF       = .
+JEVENTS    = ./pmu-tools/jevents
+
+CC        := gcc
+LD        := gcc
+
+CFLAGS    += -O3 -Wall
+CFLAGS    += -I$(GEM5) -I$(JEVENTS)
+
+
+# Choice of utility for performance monitoring
+CFLAGS   += -DPERF_COUNTERS_JEVENTS
+
+OBJS = perf_counters.o  libjevents.a
+
+all: ${OBJS}
+
+%.o: %.c
+	${CC} ${CFLAGS} -c $< -o $@
+
+$(JEVENTS)/libjevents.a:
+	cd $(JEVENTS) && make -f Makefile
+
+libjevents.a: $(JEVENTS)/libjevents.a
+	cp $(JEVENTS)/libjevents.a $(PERF)
+
+clean:
+	rm -f *.o *.a
+
+veryclean:
+	rm -f *.o *.a && cd $(JEVENTS) && make clean

@@ -55,17 +55,16 @@ get_unmodified_files=$$(shell grep -l -L '__kernel__\|main' $(BINDIR)/*.marked.l
 
 # Create marked files first (marked whether to decouple or not), then
 # evaluate how to build the targets
-all: libs $(get_marked)
+all: perf libs $(get_marked)
 	$(MAKE) $(TARGETS)
 
 
 
-libs: $(SRCS_LIBS)
-ifdef SRCS_LIBS
+libs:
 	$(MAKE) -C $(LIB_DIR)
-endif
 
-
+perf:
+	$(MAKE) PERF_TOOL=$(PERF_COUNTERS_TOOL) -C $(LIB_PERF)
 
 $(BINDIR)/%.$(ORIGINAL_SUFFIX): $(get_objects)
 	$(CLANGCPP) $(CXXFLAGS) $(CFLAGS) $^ $(LIB_OBJS) $(LDFLAGS) $(LIB_LLS) -L $(COMPILER_LIB) -o $@
@@ -133,15 +132,15 @@ $(BINDIR)/Globals.ll: $(get_gran_files)
 #
 $(BINDIR)/%.ll: %.c
 	mkdir -p $(BINDIR)/$(shell dirname $^)
-	$(CLANG) $(CFLAGS) -I $(LIB_DIR) $^ -S -emit-llvm -o $@
+	$(CLANG) $(CFLAGS) -I $(LIB_DIR)/lib $^ -S -emit-llvm -o $@
 
 $(BINDIR)/%.ll: %.cpp
 	mkdir -p $(BINDIR)/$(shell dirname $<)
-	$(CLANGCPP) $(CXXFLAGS) -I $(LIB_DIR) $^ -S -emit-llvm -o $@
+	$(CLANGCPP) $(CXXFLAGS) -I $(LIB_DIR)/lib $^ -S -emit-llvm -o $@
 
 $(BINDIR)/%.ll: %.cc
 	mkdir -p $(BINDIR)/$(shell dirname $<)
-	$(CLANGCPP) $(CXXFLAGS)  -I $(LIB_DIR) $^ -S -emit-llvm -o $@
+	$(CLANGCPP) $(CXXFLAGS)  -I $(LIB_DIR)/lib $^ -S -emit-llvm -o $@
 
 %.O3.ll: %.ll
 	$(OPT) -S -O3 $^ -o $@
@@ -183,4 +182,4 @@ $(BINDIR)/%.ll: %.cc
 	$(OPT) -S -load $(COMPILER_LIB)/libTimeOrig.so -papi-orig -always-inline -o $@ $<;
 
 clean:
-	rm -f $(BINDIR)/*
+	rm -f *.o $(BINDIR)/* && $(MAKE) -C $(LIB_DIR) clean

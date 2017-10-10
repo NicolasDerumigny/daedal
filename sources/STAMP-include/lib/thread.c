@@ -82,6 +82,7 @@
 #include "types.h"
 #include "rtm.h"
 #include "../gem5/m5ops_wrapper.h"
+#include "../perf/perf_counters.h"
 
 #define MSR_MAX 8
 
@@ -518,11 +519,17 @@ thread_startup (long numThread)
 void
 thread_start (void (*funcPtr)(void*), void* argPtr)
 {
+    perf_counters_init();
+
+    perf_counters_start();
+
     global_funcPtr = funcPtr;
     global_argPtr = argPtr;
 
     long threadId = 0; /* primary */
     threadWait((void*)&threadId);
+
+    perf_counters_end();
 }
 
 

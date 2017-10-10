@@ -1,0 +1,51 @@
+#
+# Makefile for the library
+#
+
+GEM5       = ../gem5
+PERF       = .
+PCM        = $(PERF)/pcm
+
+CC        := gcc
+CXX       := g++
+LD        := g++
+
+AR_FLAGS  := rvs
+CFLAGS    += -O3 -Wall
+CFLAGS    += -I$(GEM5)
+
+CXXFLAGS += -Wall -g -O3 -std=c++11 -I$(PCM)
+
+# Choice of utility for performance monitoring
+CFLAGS   += -DPERF_COUNTERS_PCM
+
+OBJS = perf_counters.o pcm.a
+
+
+PCM_SRC = pcm
+PCM_OBJ = pcm
+PCM_SOURCES := $(wildcard $(PCM_SRC)/*.cpp)
+PCM_OBJECTS := $(patsubst $(PCM_SRC)/%.cpp, $(PCM_OBJ)/%.o, $(PCM_SOURCES))
+
+PCM_OBJECTS += pcm_iface.o pcm.o
+
+all: ${OBJS} ${PCM_OBJECTS}
+
+%.o: %.cpp
+	$(CXX) $(CXXFLAGS) -c $*.cpp -o $*.o
+
+%.o: %.S
+	${CC} ${CFLAGS} -c $< -o $@
+
+%.o: %.c
+	${CC} ${CFLAGS} -c $< -o $@
+
+pcm.a: ${PCM_OBJECTS}
+	${AR} ${AR_FLAGS} $@ ${PCM_OBJECTS}
+	cp pcm.a libpcm.a
+
+clean:
+	rm -f *.o *.a && cd $(PCM)
+
+veryclean:
+	rm -f *.o *.a && cd $(PCM) && make clean

@@ -10,6 +10,9 @@
 # ==============================================================================
 LEVEL=../..
 include $(LEVEL)/common/Makefile.environment
+PERF=../perf
+GEM5=../gem5
+
 
 CC      := $(LLVM_BIN)/clang
 GCC     := gcc
@@ -35,14 +38,6 @@ SRCS := \
 #
 LLS := ${SRCS:.c=.ll}
 
-SRCS += ../gem5/m5op_x86.S\
-		../gem5/m5ops_wrapper.c\
-#
-
-OBJS += ../gem5/m5op_x86.o\
-		../gem5/m5ops_wrapper.o\
-#
-
 
 PROG_TEST := \
 	test_bitmap \
@@ -66,8 +61,8 @@ RM := rm -f
 all: $(OBJS) $(LLS)
 
 
-../gem5/m5op_x86.o: ../gem5/m5op_x86.S
-	$(GCC) -o $@ -c $< $(CFLAGS)
+../gem5/m5op_x86.o: $(GEM5)
+	$(MAKE) -C $(GEM5)
 
 %.o: %.c
 	$(CC) -o $@ -c $< $(CFLAGS)
@@ -79,7 +74,7 @@ all: $(OBJS) $(LLS)
 
 .PHONY: clean
 clean:
-	$(RM) $(OBJS) $(PROG_TEST) $(LLS)
+	$(RM) $(OBJS) $(PROG_TEST) $(LLS) && $(MAKE) -C $(PERF) clean && $(MAKE) -C $(GEM5) clean
 
 .PHONY: test_bitmap
 test_bitmap: CFLAGS += -DTEST_BITMAP
