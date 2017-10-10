@@ -4,5 +4,5 @@
 # Setting the environment variables 
 #
 
-COMPILER_LIB=$(HOME)/Documents/Murcia/daedal/compiler/build/projects-build/lib
-LLVM_BIN=$(HOME)/Documents/Murcia/daedal/compiler/build/llvm-build/bin/
+COMPILER_LIB=$(HOME)/daedal/compiler/build/projects-build/lib
+LLVM_BIN=$(HOME)/daedal/compiler/build/llvm-build/bin/
