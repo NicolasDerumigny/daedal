@@ -1,4 +1,9 @@
-BENCHMARK = $(PROG)
+# CAREFUL! Building errors appear if benchmark matches program name,
+# prefix required (probably) so that DAE/Makefile.* does not get
+# confused with .ll files generated related to source files
+# (e.g. intruder.c) from those related to the entire program
+
+BENCHMARK = STAMP-$(PROG)
 
 LIB_LLS := ${SRCS_LIBS:.c=.ll}
 
