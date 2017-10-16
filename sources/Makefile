@@ -1,8 +1,7 @@
 # Copyright (C) Eta Scale AB. Licensed under the Eta Scale Open Source License. See the LICENSE file for details.
 
-BENCHMARKS = myBenchmark
-# BENCHMARKS = STAMP-genome
-#BENCHMARKS = STAMP-bayes STAMP-genome STAMP-intruder STAMP-kmeans STAMP-labyrinth STAMP-ssca2 STAMP-vacation STAMP-yada
+#BENCHMARKS = myBenchmark
+BENCHMARKS = STAMP-bayes STAMP-genome STAMP-intruder STAMP-kmeans STAMP-labyrinth STAMP-ssca2 STAMP-vacation STAMP-yada
 LIBS-DIR = STAMP-include/lib
 
 .SECONDEXPANSION:

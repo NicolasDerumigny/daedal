@@ -1,16 +1,9 @@
 # Copyright (C) Eta Scale AB. Licensed under the Eta Scale Open Source License. See the LICENSE file for details.
 
-LEVEL=../../
-LIB_DIR=../../STAMP-include/lib
+LEVEL=../..
 
+include $(LEVEL)/common/Defines.common.mk
 include ./Defines.common.mk
+include $(LEVEL)/common/Makefile.common
 
-BENCHMARK=STAMP-$(PROG)
-
-CFLAGS+=-pthread -DHTM -DOLD_RTM_MACROSES
-CXXFLAGS+=-O3
-LDFLAGS+=
-
-include $(LEVEL)/common/DAE/Makefile.targets
-include $(LEVEL)/common/DAE/Makefile.defaults
 
