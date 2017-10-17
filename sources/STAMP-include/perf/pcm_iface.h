@@ -10,6 +10,7 @@ extern "C" {
     
     void perf_pcm_start(pcm_handle p);
     void perf_pcm_end(pcm_handle p);
+    void perf_pcm_shutdown(pcm_handle p);
     
 #ifdef __cplusplus
 }

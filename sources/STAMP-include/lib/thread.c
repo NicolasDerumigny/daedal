@@ -538,6 +538,8 @@ thread_shutdown ()
     global_threads = NULL;
 
     global_numThread = 1;
+
+    perf_counters_shutdown();
 }
 
 

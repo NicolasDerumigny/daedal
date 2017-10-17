@@ -27,4 +27,10 @@ extern "C"
     {
         w->end();
     }
+
+    void perf_pcm_shutdown(pcm_handle w) // wrapper function
+    {
+        w->shutdown();
+    }
+    
 }

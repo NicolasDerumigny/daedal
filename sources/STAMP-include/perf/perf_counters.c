@@ -62,7 +62,11 @@ void perf_counters_end() {
     int i;
     for (i=0; i < numEvents; i++)
         end[i] = rdpmc_read(&ctx[i]);
+}
 
+void perf_counters_shutdown() {
+    if (M5_inSimulator) return;
+    
     for (i=0; i < numEvents; i++)
         fprintf(stdout, "%s: %lld\n", eventNames[i], end[i] - start[i]);
 }
@@ -90,10 +94,15 @@ void perf_counters_end() {
     perf_pcm_end(pcm);
 }
 
+void perf_counters_shutdown() {
+    perf_pcm_shutdown(pcm);
+}
+
 #else // No performance monitoring
 
 void perf_counters_init() {}
 void perf_counters_start() {}
 void perf_counters_end() {}
+void perf_counters_shutdown() {}
 
 #endif
