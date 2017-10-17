@@ -117,6 +117,10 @@ extern "C" {
 #define THREAD_COND_BROADCAST(cond)         pthread_cond_broadcast(&(cond))
 #define THREAD_COND_WAIT(cond, lock)        pthread_cond_wait(&(cond), &(lock))
 
+#  define THREAD_SET_AFFINITY(cpuset, t, attr)    CPU_ZERO(&cpuset);   \
+                                                  CPU_SET(t, &cpuset); \
+                                                  pthread_attr_setaffinity_np(&attr, sizeof(cpu_set_t), &cpuset)
+
 #ifdef SIMULATOR
 #  define THREAD_BARRIER_T                  pthread_barrier_t
 #  define THREAD_BARRIER_ALLOC(N)           ((THREAD_BARRIER_T*)malloc(sizeof(THREAD_BARRIER_T)))

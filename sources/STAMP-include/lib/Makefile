@@ -17,7 +17,7 @@ GEM5=../gem5
 CC      := $(LLVM_BIN)/clang
 GCC     := gcc
 AR      := ar
-CFLAGS  := -Wall -DOLD_RTM_MACROSES -DX86make -pthread
+CFLAGS  := -Wall -DOLD_RTM_MACROSES -DSET_AFFINITY -DX86make -pthread
 AR_FLAGS  := rvs
 
 SRCS := \

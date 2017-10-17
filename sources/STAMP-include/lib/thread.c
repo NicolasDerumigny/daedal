@@ -375,15 +375,6 @@ threadWait (void* argPtr)
     THREAD_LOCAL_SET(global_threadId, (long)threadId);
 
     /*
-    //Performance counters: set affinity
-    cpusetp = CPU_ALLOC(get_nprocs());
-    assert(cpusetp != NULL);
-    size = CPU_ALLOC_SIZE(get_nprocs());
-    CPU_ZERO_S(size, cpusetp);
-    CPU_SET_S((int) threadId, size, cpusetp);
-    ret = pthread_setaffinity_np(pthread_self(), size, cpusetp);
-    assert(ret == 0);
-
     if(!M5_inSimulator) {
         //Performance counters: init FD
         sprintf(msr_path, "/dev/cpu/%li/msr", threadId);
@@ -410,24 +401,6 @@ threadWait (void* argPtr)
     }*/
 }
 
-long determineNumProcs()
-{
-  unsigned long long int bitmask;
-  int num_procs, err;
-  cpu_set_t available_procs;
-
-  /* Set up bitmasks to possibly assign thread affinities to */
-  err = pthread_getaffinity_np(pthread_self(), sizeof(cpu_set_t), &available_procs);
-  assert(err == 0);
-  bitmask = available_procs.__bits[0];
-  num_procs = 0;
-  while (bitmask > 0) {
-    num_procs++;
-    bitmask = bitmask >> 1;
-  }
-  return num_procs;
-}
-
 
 /* =============================================================================
  * thread_startup
@@ -439,25 +412,12 @@ void
 thread_startup (long numThread)
 {
     long i;
-    unsigned long long int bitmask;
-    int num_procs, err;
-    cpu_set_t available_procs;
-    cpu_set_t mask, check_mask;
+    cpu_set_t cpuset;
+    pthread_t thread;
+    int num_procs = get_nprocs();
 
     global_numThread = numThread;
     global_doShutdown = FALSE;
-
-    /* Set up bitmasks to possibly assign thread affinities to */
-    err = pthread_getaffinity_np(pthread_self(), sizeof(cpu_set_t), &available_procs);
-    assert(err == 0);
-    bitmask = available_procs.__bits[0];
-    num_procs = 0;
-    while (bitmask > 0) {
-      num_procs++;
-      bitmask = bitmask >> 1;
-    }
-    memset(&mask, 0, sizeof(mask));
-    memset(&check_mask, 0, sizeof(check_mask));
 
 
     /* Set up barrier */
@@ -494,14 +454,32 @@ thread_startup (long numThread)
     global_threads = (THREAD_T*)malloc(numThread * sizeof(THREAD_T));
     assert(global_threads);
 
+#if defined(SET_AFFINITY)
+    /* Set up cpu affinity for currently running thread */
+    thread = pthread_self();
+    CPU_ZERO(&cpuset);
+    CPU_SET(0, &cpuset);
+    pthread_setaffinity_np(thread, sizeof(cpu_set_t), &cpuset);
+#endif /* SET_AFFINITY */
+
     /* Set up pool */
     THREAD_ATTR_INIT(global_threadAttr);
     for (i = 1; i < numThread; i++) {
+#if defined(SET_AFFINITY)
+        THREAD_SET_AFFINITY(cpuset, i, global_threadAttr);
+#endif /* SET_AFFINITY */
         THREAD_CREATE(global_threads[i],
                       global_threadAttr,
                       &threadWait,
                       &global_threadIds[i]);
     }
+
+
+    /*
+     * Initialize (program) performance counters
+     */
+    perf_counters_init();
+
 
     /*
      * Wait for primary thread to call thread_start
@@ -519,8 +497,6 @@ thread_startup (long numThread)
 void
 thread_start (void (*funcPtr)(void*), void* argPtr)
 {
-    perf_counters_init();
-
     perf_counters_start();
 
     global_funcPtr = funcPtr;
