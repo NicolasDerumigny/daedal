@@ -27,7 +27,7 @@ PCM_OBJ = pcm
 PCM_SOURCES := $(wildcard $(PCM_SRC)/*.cpp)
 PCM_OBJECTS := $(patsubst $(PCM_SRC)/%.cpp, $(PCM_OBJ)/%.o, $(PCM_SOURCES))
 
-PCM_OBJECTS += pcm_iface.o pcm.o
+PCM_OBJECTS += pcm_iface.o pcm.o pcm.o
 
 all: ${OBJS} ${PCM_OBJECTS}
 
