@@ -8,33 +8,12 @@
 
 extern "C"
 {
-    string
-    PCMWrapper::convertUnits(uint64 val) {
-        static const char *UNITS[] = { "", "K", "M", "G", "T", "P" };
-        const unsigned int base = 1000;
-        unsigned int div = 0;
-        uint64 rem = 0;
-
-        while (val >= base && div < (sizeof UNITS / sizeof *UNITS)) {
-            rem = (val % base);
-            div++;
-            val /= base;
-        }
-
-        double val_d = round((float)val + (float)rem / (float)base);
-        ostringstream convert;
-        convert << val_d;
-        string val_str = convert.str();
-        string result = val_str + " " + UNITS[div];
-        return result;
-    }
-
     void
     PCMWrapper::tokenize(string s, string delimiter, vector<string> &tokens) {
         assert(tokens.empty());
         size_t pos = 0;
-        std::string token;
-        while ((pos = s.find(delimiter)) != std::string::npos) {
+        string token;
+        while ((pos = s.find(delimiter)) != string::npos) {
             token = s.substr(0, pos);
             tokens.push_back(token);
             s.erase(0, pos + delimiter.length());
@@ -172,25 +151,25 @@ extern "C"
            fixed rate regardless of the C-state or frequency of the
            processor (as long as it remains in the ACPI S0 state). */
     
-        cout <<
+        cerr <<
             "******************** Begin PCM statistics ********************" << endl <<
             "Time elapsed: " << dec << fixed << AfterTime - BeforeTime << " ms" << endl <<
             "InstructionsRetired: " << setw(20) <<
             getInstructionsRetired(SysBeforeState,SysAfterState) <<
             " (" << setw(4) <<
-            convertUnits(getInstructionsRetired(SysBeforeState,SysAfterState)) << ")" << endl <<
+            unit_format(getInstructionsRetired(SysBeforeState,SysAfterState)) << ")" << endl <<
             "Cycles:              " << setw(20) <<
             getCycles(SysBeforeState,SysAfterState) <<
             " (" << setw(4) <<
-            convertUnits(getCycles(SysBeforeState,SysAfterState)) << ")" << endl <<
+            unit_format(getCycles(SysBeforeState,SysAfterState)) << ")" << endl <<
             "RefCycles:           " << setw(20) <<
             getRefCycles(SysBeforeState,SysAfterState) <<
             " (" << setw(4) <<
-            convertUnits(getRefCycles(SysBeforeState,SysAfterState)) << ")" << endl <<
+            unit_format(getRefCycles(SysBeforeState,SysAfterState)) << ")" << endl <<
             "InvariantTSC:        " << setw(20) <<
             getInvariantTSC(SysBeforeState,SysAfterState) <<
             " (" << setw(4) <<
-            convertUnits(getInvariantTSC(SysBeforeState,SysAfterState)) << ")" << endl <<
+            unit_format(getInvariantTSC(SysBeforeState,SysAfterState)) << ")" << endl <<
             "IPC:                 " << setw(20) <<
             getIPC(SysBeforeState,SysAfterState) << endl <<
             "ActiveAvgFrequency:  " << setw(20) <<
@@ -243,21 +222,25 @@ extern "C"
 
         PCM::ExtendedCustomCoreEventDescription conf;
         conf.fixedCfg = NULL; // default
-        conf.nGPCounters = 4;
-        EventSelectRegister regs[4];
+        conf.nGPCounters = MONITORED_EVENTS_MAX;
+        EventSelectRegister regs[MONITORED_EVENTS_MAX];
         conf.gpCounterCfg = regs;
-        for (int i = 0; i < 4; ++i)
+        for (int i = 0; i < MONITORED_EVENTS_MAX; ++i)
             regs[i] = def_event_select_reg;
 
         if (events.empty())
             {
+                // regs[0]: RTM_RETIRED.START
                 regs[0].fields.event_select = 0xc9;
                 regs[0].fields.umask = 0x01;
-                regs[1].fields.event_select = 0xc8;
-                regs[1].fields.umask = 0x01;
+                // regs[1]: RTM_RETIRED.COMMIT
+                regs[1].fields.event_select = 0xc9;
+                regs[1].fields.umask = 0x02;
+                // regs[2]: TXcycles_commited 
                 regs[2].fields.event_select = 0x3c;
                 regs[2].fields.in_tx = 1;
                 regs[2].fields.in_txcp = 1;
+                // regs[3]: TXcycles
                 regs[3].fields.event_select = 0x3c;
                 regs[3].fields.in_tx = 1;
             }
@@ -302,8 +285,8 @@ extern "C"
     }
     void
     PCMWrapper::startTSX(void) {
-        std::cout.precision(2);
-        std::cout << std::fixed;
+        cerr.precision(2);
+        cerr << fixed;
 
         m->getAllCounterStates(SysBeforeState, DummySocketStates, BeforeState);
         BeforeTime = m->getTickCount();
@@ -317,65 +300,49 @@ extern "C"
 
     void
     PCMWrapper::printStatsTSX(void) {
-        bool csv = false;
-        if (!csv) cout << std::flush;
-        cout << "Time elapsed: " << dec << fixed << AfterTime - BeforeTime << " ms\n";
+        cerr << "Time elapsed: " << dec << fixed << AfterTime - BeforeTime << " ms\n";
         
         if (events.empty())
             {
-                if (csv)
-                    cout << "Core,IPC,Instructions,Cycles,Transactional Cycles,Aborted Cycles,#RTM,#HLE,Cycles/Transaction \n";
-                else
-                    cout << "Core | IPC  | Instructions | Cycles  | Transactional Cycles | Aborted Cycles  | #RTM  | #HLE  | Cycles/Transaction \n";
+                cerr << "Core | IPC  | Inst  | Cycles  | Trans Cycles | Aborted Cycles  | #Start | #Commit | Cycles/Transaction \n";
             }
         else
             {
                 for (uint32 i = 0; i < events.size(); ++i)
                     {
-                        cout << "Event" << i << ": "
+                        cerr << "Event" << i << ": "
                              << eventDefinition[events[i]].name << " "
                              << eventDefinition[events[i]].description << " (raw 0x"
-                             << std::hex << (uint32)eventDefinition[events[i]].umask
+                             << hex << (uint32)eventDefinition[events[i]].umask
                              << (uint32)eventDefinition[events[i]].event
-                             << std::dec << ")" << endl;
+                             << dec << ")" << endl;
                     }
-                cout << "\n";
-                if (csv)
-                    cout << "Core,Event0,Event1,Event2,Event3\n";
-                else
-                    cout << "Core | Event0  | Event1  | Event2  | Event3 \n";
+                cerr << "\n";
+                cerr << "Core | Event0  | Event1  | Event2  | Event3 \n";
             }
         const uint32 ncores = m->getNumCores();
         for (uint32 i = 0; i < ncores; ++i)
             {
-                if (csv)
-                    cout << i << ",";
-                else
-                    cout << " " << setw(3) << i << "   " << setw(2);
+                cerr << " " << setw(3) << i << "   " << setw(2);
                 if (events.empty())
-                    print_basic_stats(BeforeState[i], AfterState[i], csv);
+                    print_basic_stats(BeforeState[i], AfterState[i]);
                 else
-                    print_custom_stats(BeforeState[i], AfterState[i], csv);
+                    print_custom_stats(BeforeState[i], AfterState[i]);
             }
-        if (csv)
-            cout << "*,";
-        else
-            {
-                cout << "-------------------------------------------------------------------------------------------------------------------\n";
-                cout << "   *   ";
-            }
+        cerr << "-------------------------------------------------------------------------------------------------------------------\n";
+        cerr << "   *   ";
         if (events.empty())
-            print_basic_stats(SysBeforeState, SysAfterState, csv);
+            print_basic_stats(SysBeforeState, SysAfterState);
         else
-            print_custom_stats(SysBeforeState, SysAfterState, csv);
+            print_custom_stats(SysBeforeState, SysAfterState);
 
-        std::cout << std::endl;
+        cerr << endl;
     }
 }
 
 template <class StateType>
 void
-PCMWrapper::print_basic_stats(const StateType & BeforeState, const StateType & AfterState, bool csv)
+PCMWrapper::print_basic_stats(const StateType & BeforeState, const StateType & AfterState)
 {
     uint64 cycles = getCycles(BeforeState, AfterState);
     uint64 instr = getInstructionsRetired(BeforeState, AfterState);
@@ -383,51 +350,31 @@ PCMWrapper::print_basic_stats(const StateType & BeforeState, const StateType & A
     const uint64 TXcycles_commited = getNumberOfCustomEvents(2, BeforeState, AfterState);
     const uint64 Abr_cycles = (TXcycles > TXcycles_commited) ? (TXcycles - TXcycles_commited) : 0ULL;
     uint64 nRTM = getNumberOfCustomEvents(0, BeforeState, AfterState);
-    uint64 nHLE = getNumberOfCustomEvents(1, BeforeState, AfterState);
+    uint64 nRTMcommit = getNumberOfCustomEvents(1, BeforeState, AfterState);
 
-    if (csv)
+    cerr << double(instr) / double(cycles) << "   ";
+    cerr << unit_format(instr) << "   ";
+    cerr << unit_format(cycles) << "  ";
+    cerr << unit_format(TXcycles) << " (" << setw(5) << 100. * double(TXcycles) / double(cycles) << "%)  ";
+    cerr << unit_format(Abr_cycles) << " (" << setw(5) << 100. * double(Abr_cycles) / double(cycles) << "%) ";
+    cerr << unit_format(nRTM) << "   ";
+    cerr << unit_format(nRTMcommit) << "     ";
+
+    if (nRTM)
         {
-            cout << double(instr) / double(cycles) << ",";
-            cout << instr << ",";
-            cout << cycles << ",";
-            cout << TXcycles << "," << std::setw(5) << 100. * double(TXcycles) / double(cycles) << "%,";
-            cout << Abr_cycles << "," << std::setw(5) << 100. * double(Abr_cycles) / double(cycles) << "%,";
-            cout << nRTM << ",";
-            cout << nHLE << ",";
+            uint64 cyclesPerTransaction = TXcycles / (nRTM);
+            cerr << unit_format(cyclesPerTransaction) << "\n";
         }
     else
-        {
-            cout << double(instr) / double(cycles) << "       ";
-            cout << unit_format(instr) << "     ";
-            cout << unit_format(cycles) << "      ";
-            cout << unit_format(TXcycles) << " (" << std::setw(5) << 100. * double(TXcycles) / double(cycles) << "%)       ";
-            cout << unit_format(Abr_cycles) << " (" << std::setw(5) << 100. * double(Abr_cycles) / double(cycles) << "%) ";
-            cout << unit_format(nRTM) << "   ";
-            cout << unit_format(nHLE) << "    ";
-        }
-
-    if (nRTM + nHLE)
-        {
-            uint64 cyclesPerTransaction = TXcycles / (nRTM + nHLE);
-            if (csv)
-                cout << cyclesPerTransaction << "\n";
-            else
-                cout << unit_format(cyclesPerTransaction) << "\n";
-        }
-    else
-        cout << " N/A" << "\n";
+        cerr << " N/A" << "\n";
 }
 
 template <class StateType>
 void
-PCMWrapper::print_custom_stats(const StateType & BeforeState, const StateType & AfterState, bool csv)
+PCMWrapper::print_custom_stats(const StateType & BeforeState, const StateType & AfterState)
 {
-    for (int i = 0; i < 4; ++i)
-        if (!csv)
-            cout << unit_format(getNumberOfCustomEvents(i, BeforeState, AfterState)) << "    ";
-        else
-            cout << getNumberOfCustomEvents(i, BeforeState, AfterState) << ",";
-
-    cout << "\n";
+    for (int i = 0; i < MONITORED_EVENTS_MAX; ++i)
+        cerr << unit_format(getNumberOfCustomEvents(i, BeforeState, AfterState)) << "    ";
+    cerr << "\n";
 }
 

@@ -28,6 +28,8 @@ private:
      */
     const char *tsxEventsEnvVarName = "PCM_EVENTS_TSX";
     const char *tsxEventsDelimiter = ":";
+    /* Maximum number of events that can be monitored using perf counters */
+    const int MONITORED_EVENTS_MAX = 4;
 
     /* init/start/end for basic core counters */
     void initBasic(void);
@@ -46,8 +48,8 @@ private:
     void endTSX(void);
     void printStatsTSX(void);
     
-    template <class StateType> void print_basic_stats(const StateType & BeforeState, const StateType & AfterState, bool csv);
-    template <class StateType> void print_custom_stats(const StateType & BeforeState, const StateType & AfterState, bool csv);
+    template <class StateType> void print_basic_stats(const StateType & BeforeState, const StateType & AfterState);
+    template <class StateType> void print_custom_stats(const StateType & BeforeState, const StateType & AfterState);
     /* The TSX events (index in eventDescriptor) to be monitored (up to 4) */
     vector<int> events;
     std::vector<CoreCounterState> BeforeState;
@@ -55,7 +57,6 @@ private:
     std::vector<SocketCounterState> DummySocketStates;
 
     /* Utility functions */
-    static string convertUnits(uint64 val);
     static void tokenize(string s, string delimiter, vector<string> &tokens);
 };
 
