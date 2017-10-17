@@ -17,8 +17,6 @@ unsigned events[] = { // See man entry for perf_event_open
     PERF_COUNT_HW_REF_CPU_CYCLES,
     PERF_COUNT_HW_CACHE_MISSES,
     PERF_COUNT_HW_CACHE_REFERENCES,
-    PERF_COUNT_HW_BRANCH_INSTRUCTIONS,
-    PERF_COUNT_HW_BRANCH_MISSES
 };
 
 char *eventNames[] = {
@@ -27,8 +25,6 @@ char *eventNames[] = {
     "PERF_COUNT_HW_REF_CPU_CYCLES",
     "PERF_COUNT_HW_CACHE_MISSES",
     "PERF_COUNT_HW_CACHE_REFERENCES",
-    "PERF_COUNT_HW_BRANCH_INSTRUCTIONS",
-    "PERF_COUNT_HW_BRANCH_MISSES"
 };
 
 const int numEvents = sizeof(events) / sizeof(events[0]);
