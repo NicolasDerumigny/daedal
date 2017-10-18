@@ -1,11 +1,12 @@
 #include "cpucounters.h"
+#include <sched.h>
 #include <list>
 
 using namespace std;
 
 class PCMWrapper {
 public:
-    void init(void);
+    void init(cpu_set_t cpus);
     void start(void);
     void end(void);
     void shutdown(void); // Print stats and cleanup
@@ -17,6 +18,7 @@ private:
     SystemCounterState SysAfterState;
     uint64 BeforeTime;
     uint64 AfterTime;
+    cpu_set_t cpusToMonitor;
     
     /* A colon-separated list of TSX events (max. 4 events) can be
      * monitored during the execution of the benchmark, passed to 

@@ -412,7 +412,7 @@ void
 thread_startup (long numThread)
 {
     long i;
-    cpu_set_t cpuset;
+    cpu_set_t cpuset, cpuset_perf_monitoring;
     pthread_t thread;
     int num_procs = get_nprocs();
 
@@ -454,11 +454,16 @@ thread_startup (long numThread)
     global_threads = (THREAD_T*)malloc(numThread * sizeof(THREAD_T));
     assert(global_threads);
 
+    /* Set of all used cpus, passed to the perf monitoring library */
+    CPU_ZERO(&cpuset_perf_monitoring);
 #if defined(SET_AFFINITY)
     /* Set up cpu affinity for currently running thread */
     thread = pthread_self();
     CPU_ZERO(&cpuset);
     CPU_SET(0, &cpuset);
+
+    CPU_SET(0, &cpuset_perf_monitoring);
+
     pthread_setaffinity_np(thread, sizeof(cpu_set_t), &cpuset);
 #endif /* SET_AFFINITY */
 
@@ -467,6 +472,7 @@ thread_startup (long numThread)
     for (i = 1; i < numThread; i++) {
 #if defined(SET_AFFINITY)
         THREAD_SET_AFFINITY(cpuset, i, global_threadAttr);
+        CPU_SET(i, &cpuset_perf_monitoring);
 #endif /* SET_AFFINITY */
         THREAD_CREATE(global_threads[i],
                       global_threadAttr,
@@ -478,7 +484,7 @@ thread_startup (long numThread)
     /*
      * Initialize (program) performance counters
      */
-    perf_counters_init();
+    perf_counters_init(cpuset_perf_monitoring);
 
 
     /*

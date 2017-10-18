@@ -29,7 +29,7 @@ char *eventNames[] = {
 
 const int numEvents = sizeof(events) / sizeof(events[0]);
 
-void perf_counters_init() {
+void perf_counters_init(cpu_set_t cpus) {
     if (M5_inSimulator) return;
 
     ctx = (struct rdpmc_ctx *)malloc(numEvents*sizeof(struct rdpmc_ctx));
@@ -77,11 +77,11 @@ void perf_counters_shutdown() {
 
 pcm_handle pcm;
 
-void perf_counters_init() {
+void perf_counters_init(cpu_set_t cpus) {
     if (M5_inSimulator) return;
 
     pcm = perf_pcm_create();
-    perf_pcm_init(pcm);
+    perf_pcm_init(pcm, cpus);
 }
 void perf_counters_start() {
     if (M5_inSimulator) return;

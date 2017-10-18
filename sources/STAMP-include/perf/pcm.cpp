@@ -48,7 +48,8 @@ extern "C"
     }
 
     void
-    PCMWrapper::init(void) {
+    PCMWrapper::init(cpu_set_t cpus) {
+        cpusToMonitor = cpus;
         if (tsxMode)
             initTSX();
         else
@@ -320,9 +321,11 @@ extern "C"
     PCMWrapper::printStatsTSX(bool summarized) {
         if (summarized) {
             const uint32 ncores = m->getNumCores();
-            // TODO: Only accumulate state for CPUs running the benchmark
+            // Only accumulate state for CPUs running the benchmark
             for (uint32 i = 0; i < ncores; ++i) {
-                accumulate_stats(BeforeState[i], AfterState[i]);
+                if (CPU_ISSET(i, &cpusToMonitor)) {
+                    accumulate_stats(BeforeState[i], AfterState[i]);
+                }
             }
             print_stats_summary();
             return;
@@ -427,6 +430,7 @@ PCMWrapper::print_stats_summary()
 {
     cerr <<
         "******************** Begin PCM summary statistics  ********************" << endl <<
+        "NumCpusMonitored: " << CPU_COUNT(&cpusToMonitor) << endl <<
         "Time: " << dec << fixed << AfterTime - BeforeTime << " ms" << endl <<
         "InstructionsRetired: " << setw(20) <<
         instructionsRetiredSummary <<
@@ -441,7 +445,6 @@ PCMWrapper::print_stats_summary()
             right << eventCountSummary[i] <<
             " (" << setw(4) << unit_format(eventCountSummary[i]) << ")" << endl;
     }
-    // TODO    cerr << "UsedCpus: " << numUsedCpus << endl;;
     cerr <<
         "********************   End PCM summary statistics ********************" << endl;
 

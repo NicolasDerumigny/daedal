@@ -13,9 +13,9 @@ extern "C"
         return new PCMWrapper();
     }
 
-    void perf_pcm_init(pcm_handle w) // wrapper function
+    void perf_pcm_init(pcm_handle w, cpu_set_t cpus) // wrapper function
     {
-        w->init();
+        w->init(cpus);
     }
 
     void perf_pcm_start(pcm_handle w) // wrapper function
