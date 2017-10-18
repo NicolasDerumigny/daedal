@@ -9,7 +9,7 @@
 extern "C"
 {
     void
-    PCMWrapper::tokenize(string s, string delimiter, vector<string> &tokens) {
+    PCMWrapper::tokenize(string s, string delimiter, list<string> &tokens) {
         assert(tokens.empty());
         size_t pos = 0;
         string token;
@@ -33,6 +33,11 @@ extern "C"
 
             fprintf (stderr, "%s set: %s\n",
                      tsxEventsEnvVarName, tsxEvents);
+
+            if (getenv (tsxEventsSummaryEnvVarName) != NULL)
+                summarized = true;
+            else
+                summarized = false;
         }
         else {
             tsxMode = false;
@@ -132,7 +137,7 @@ extern "C"
         m->cleanup();
 
         if (tsxMode) {
-            printStatsTSX();
+            printStatsTSX(summarized);
         }
         else {
             printStatsBasic();
@@ -153,7 +158,7 @@ extern "C"
     
         cerr <<
             "******************** Begin PCM statistics ********************" << endl <<
-            "Time elapsed: " << dec << fixed << AfterTime - BeforeTime << " ms" << endl <<
+            "Time: " << dec << fixed << AfterTime - BeforeTime << " ms" << endl <<
             "InstructionsRetired: " << setw(20) <<
             getInstructionsRetired(SysBeforeState,SysAfterState) <<
             " (" << setw(4) <<
@@ -189,25 +194,42 @@ extern "C"
     void
     PCMWrapper::initTSX(void) {
 
-        vector<string> eventNames;
+        list<string> eventNames;
 
         char *tsxEventsRaw = getenv(tsxEventsEnvVarName);
         string tsxEventsStr(tsxEventsRaw);
+        int cur_event;
         
         tokenize(tsxEventsStr, tsxEventsDelimiter, eventNames);
+
+        if (eventNames.empty())  {
+            /* If no events selected, by default use RTM.START/COMMIT,
+             * tx cycles commited and tx cycles total (special events).
+             */
+            defaultStatsTSX = true;
+
+            /* NOTE: the order in which events are pushed must
+               be in sync with print_default_stats */
+            eventNames.push_back("RTM_RETIRED.START");
+            eventNames.push_back("RTM_RETIRED.COMMIT");
+            eventNames.push_back("TX_CYCLES.COMMIT");
+            eventNames.push_back("TX_CYCLES.TOTAL");
+        }
+        else {
+            defaultStatsTSX = false;
+        }
         
         while (!eventNames.empty()) {
-            string eventName = eventNames.back();
-            eventNames.pop_back();
+            string eventName = eventNames.front();
+            eventNames.pop_front();
 
-            int cur_event = findTSXEventDefinition(eventName.c_str());
-            if (cur_event < 0) {
+            cur_event = findTSXEventDefinition(eventName.c_str());
+            if (cur_event < 0) { // Invalid event number (TX_CYCLES)
                 cerr << "Event " << eventName << " is not supported. " <<
                     "See the list of supported events" << endl;
             }
             else {
                 cerr << "Event " << eventName << " added to event list" << endl;
-                
                 events.push_back(cur_event);
             }
         }
@@ -228,30 +250,26 @@ extern "C"
         for (int i = 0; i < MONITORED_EVENTS_MAX; ++i)
             regs[i] = def_event_select_reg;
 
-        if (events.empty())
-            {
-                // regs[0]: RTM_RETIRED.START
-                regs[0].fields.event_select = 0xc9;
-                regs[0].fields.umask = 0x01;
-                // regs[1]: RTM_RETIRED.COMMIT
-                regs[1].fields.event_select = 0xc9;
-                regs[1].fields.umask = 0x02;
-                // regs[2]: TXcycles_commited 
-                regs[2].fields.event_select = 0x3c;
-                regs[2].fields.in_tx = 1;
-                regs[2].fields.in_txcp = 1;
-                // regs[3]: TXcycles
-                regs[3].fields.event_select = 0x3c;
-                regs[3].fields.in_tx = 1;
+        assert(events.size() > 0);
+        // Resize summarized event counts and set to 0
+        eventCountSummary.resize(events.size(), 0);
+
+        for (unsigned int i = 0; i < events.size(); ++i)  {
+
+            // Set selected event and umask for events defined in tsx_event.h
+            regs[i].fields.event_select = eventDefinition[events[i]].event;
+            regs[i].fields.umask = eventDefinition[events[i]].umask;
+
+            //  "special events" that need to set additional fields in reg
+            if (strcmp(eventDefinition[events[i]].name, "TX_CYCLES.TOTAL") == 0) {
+                regs[i].fields.in_tx = 1;
             }
-        else
-            {
-                for (unsigned int i = 0; i < events.size(); ++i)
-                    {
-                        regs[i].fields.event_select = eventDefinition[events[i]].event;
-                        regs[i].fields.umask = eventDefinition[events[i]].umask;
-                    }
+            else if (strcmp(eventDefinition[events[i]].name, "TX_CYCLES.COMMIT") == 0) {
+                regs[i].fields.in_tx = 1;
+                regs[i].fields.in_txcp = 1;
             }
+
+        }
 
         PCM::ErrorCode status = m->program(PCM::EXT_CUSTOM_CORE_EVENTS, &conf);
         switch (status)
@@ -299,11 +317,20 @@ extern "C"
     }
 
     void
-    PCMWrapper::printStatsTSX(void) {
-        cerr << "Time elapsed: " << dec << fixed << AfterTime - BeforeTime << " ms\n";
+    PCMWrapper::printStatsTSX(bool summarized) {
+        if (summarized) {
+            const uint32 ncores = m->getNumCores();
+            // TODO: Only accumulate state for CPUs running the benchmark
+            for (uint32 i = 0; i < ncores; ++i) {
+                accumulate_stats(BeforeState[i], AfterState[i]);
+            }
+            print_stats_summary();
+            return;
+        }
         
-        if (events.empty())
+        if (defaultStatsTSX)
             {
+                cerr << "Time: " << dec << fixed << AfterTime - BeforeTime << " ms\n";
                 cerr << "Core | IPC  | Inst  | Cycles  | Trans Cycles | Aborted Cycles  | #Start | #Commit | Cycles/Transaction \n";
             }
         else
@@ -324,15 +351,15 @@ extern "C"
         for (uint32 i = 0; i < ncores; ++i)
             {
                 cerr << " " << setw(3) << i << "   " << setw(2);
-                if (events.empty())
-                    print_basic_stats(BeforeState[i], AfterState[i]);
+                if (defaultStatsTSX)
+                    print_default_stats(BeforeState[i], AfterState[i]);
                 else
                     print_custom_stats(BeforeState[i], AfterState[i]);
             }
         cerr << "-------------------------------------------------------------------------------------------------------------------\n";
         cerr << "   *   ";
-        if (events.empty())
-            print_basic_stats(SysBeforeState, SysAfterState);
+        if (defaultStatsTSX)
+            print_default_stats(SysBeforeState, SysAfterState);
         else
             print_custom_stats(SysBeforeState, SysAfterState);
 
@@ -342,15 +369,15 @@ extern "C"
 
 template <class StateType>
 void
-PCMWrapper::print_basic_stats(const StateType & BeforeState, const StateType & AfterState)
+PCMWrapper::print_default_stats(const StateType & BeforeState, const StateType & AfterState)
 {
     uint64 cycles = getCycles(BeforeState, AfterState);
     uint64 instr = getInstructionsRetired(BeforeState, AfterState);
-    const uint64 TXcycles = getNumberOfCustomEvents(3, BeforeState, AfterState);
-    const uint64 TXcycles_commited = getNumberOfCustomEvents(2, BeforeState, AfterState);
-    const uint64 Abr_cycles = (TXcycles > TXcycles_commited) ? (TXcycles - TXcycles_commited) : 0ULL;
     uint64 nRTM = getNumberOfCustomEvents(0, BeforeState, AfterState);
     uint64 nRTMcommit = getNumberOfCustomEvents(1, BeforeState, AfterState);
+    const uint64 TXcycles_commited = getNumberOfCustomEvents(2, BeforeState, AfterState);
+    const uint64 TXcycles = getNumberOfCustomEvents(3, BeforeState, AfterState);
+    const uint64 Abr_cycles = (TXcycles > TXcycles_commited) ? (TXcycles - TXcycles_commited) : 0ULL;
 
     cerr << double(instr) / double(cycles) << "   ";
     cerr << unit_format(instr) << "   ";
@@ -378,3 +405,44 @@ PCMWrapper::print_custom_stats(const StateType & BeforeState, const StateType & 
     cerr << "\n";
 }
 
+template <class StateType>
+void
+PCMWrapper::accumulate_stats(const StateType & BeforeState, const StateType & AfterState)
+{
+    uint64 cycles = getCycles(BeforeState, AfterState);
+    uint64 insts = getInstructionsRetired(BeforeState, AfterState);
+
+    cyclesSummary += cycles;
+    instructionsRetiredSummary += insts;
+
+    for (unsigned int i = 0; i < events.size(); i++) {
+        uint64 count = getNumberOfCustomEvents(i, BeforeState, AfterState);
+        eventCountSummary[i] += count;
+    }
+
+}
+
+void
+PCMWrapper::print_stats_summary()
+{
+    cerr <<
+        "******************** Begin PCM summary statistics  ********************" << endl <<
+        "Time: " << dec << fixed << AfterTime - BeforeTime << " ms" << endl <<
+        "InstructionsRetired: " << setw(20) <<
+        instructionsRetiredSummary <<
+        " (" << setw(4) << unit_format(instructionsRetiredSummary) << ")" << endl <<
+        "Cycles:              " << setw(20) <<
+        cyclesSummary <<
+        " (" << setw(4) << unit_format(cyclesSummary) << ")" << endl;
+
+    for (unsigned int i = 0; i < events.size(); i++) {
+        cerr <<
+            setw(30) << left << eventDefinition[events[i]].name << ":" << setw(20) <<
+            right << eventCountSummary[i] <<
+            " (" << setw(4) << unit_format(eventCountSummary[i]) << ")" << endl;
+    }
+    // TODO    cerr << "UsedCpus: " << numUsedCpus << endl;;
+    cerr <<
+        "********************   End PCM summary statistics ********************" << endl;
+
+}

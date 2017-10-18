@@ -39,7 +39,11 @@ const struct TSXEvent eventDefinition[] = {
     { "TX_EXEC.MISC1", 0x5D, 0x01, "Counts the number of times a class of instructions that may cause a transactional abort was executed. Since this is the count of execution, it may not always cause a transactional abort." },
     { "TX_EXEC.MISC2", 0x5D, 0x02, "Counts the number of times a class of instructions that may cause a transactional abort was executed inside a transactional region" },
     { "TX_EXEC.MISC3", 0x5D, 0x04, "Counts the number of times an instruction execution caused the nest count supported to be exceeded" },
-    { "TX_EXEC.MISC4", 0x5D, 0x08, "Counts the number of times an HLE XACQUIRE instruction was executed inside an RTM transactional region" }
+    { "TX_EXEC.MISC4", 0x5D, 0x08, "Counts the number of times an HLE XACQUIRE instruction was executed inside an RTM transactional region" },
+    // umask is invalid in the following event definitions, only name, event and description
+    { "TX_CYCLES.TOTAL", 0x3c, 0x00, "Counts the total number cycles spent inside an RTM transactional region" },
+    { "TX_CYCLES.COMMIT", 0x3c, 0x00, "Counts the number cycles spent inside an RTM transactional region that committed" }
+
 };
 
 static inline int findTSXEventDefinition(const char * name)

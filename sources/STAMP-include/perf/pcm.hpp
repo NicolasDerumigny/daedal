@@ -1,4 +1,5 @@
 #include "cpucounters.h"
+#include <list>
 
 using namespace std;
 
@@ -31,6 +32,11 @@ private:
     /* Maximum number of events that can be monitored using perf counters */
     const int MONITORED_EVENTS_MAX = 4;
 
+    /* If the following env var is defined, will produce summarized stats
+     */
+    const char *tsxEventsSummaryEnvVarName = "PCM_EVENTS_TSX_SUMMARY";
+    bool summarized;
+
     /* init/start/end for basic core counters */
     void initBasic(void);
     void startBasic(void);
@@ -46,17 +52,25 @@ private:
     void initTSX(void);
     void startTSX(void);
     void endTSX(void);
-    void printStatsTSX(void);
+    void printStatsTSX(bool summarized);
     
-    template <class StateType> void print_basic_stats(const StateType & BeforeState, const StateType & AfterState);
+    template <class StateType> void print_default_stats(const StateType & BeforeState, const StateType & AfterState);
     template <class StateType> void print_custom_stats(const StateType & BeforeState, const StateType & AfterState);
+    template <class StateType> void accumulate_stats(const StateType & BeforeState, const StateType & AfterState);
+    void print_stats_summary();
+
     /* The TSX events (index in eventDescriptor) to be monitored (up to 4) */
     vector<int> events;
+    vector<uint64> eventCountSummary;
+    uint64 cyclesSummary;
+    uint64 instructionsRetiredSummary;
+
+    bool defaultStatsTSX; // Whether monitoring default TSX stats
     std::vector<CoreCounterState> BeforeState;
     std::vector<CoreCounterState> AfterState;
     std::vector<SocketCounterState> DummySocketStates;
 
     /* Utility functions */
-    static void tokenize(string s, string delimiter, vector<string> &tokens);
+    static void tokenize(string s, string delimiter, list<string> &tokens);
 };
 
