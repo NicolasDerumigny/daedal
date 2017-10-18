@@ -439,11 +439,14 @@ PCMWrapper::print_stats_summary()
         cyclesSummary <<
         " (" << setw(4) << unit_format(cyclesSummary) << ")" << endl;
 
+    int maxEventNameStrlen = 30;
     for (unsigned int i = 0; i < events.size(); i++) {
-        cerr <<
-            setw(30) << left << eventDefinition[events[i]].name << ":" << setw(20) <<
+        string eventName(eventDefinition[events[i]].name);
+        string eventDesc(eventDefinition[events[i]].description);
+        cerr << eventName << ":" << setw(10 + maxEventNameStrlen-eventName.length()) <<
             right << eventCountSummary[i] <<
-            " (" << setw(4) << unit_format(eventCountSummary[i]) << ")" << endl;
+            " (" << setw(4) << unit_format(eventCountSummary[i]) << ")" <<
+            " # " << eventDesc << endl;
     }
     cerr <<
         "********************   End PCM summary statistics ********************" << endl;
