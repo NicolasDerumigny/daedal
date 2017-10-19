@@ -89,11 +89,11 @@
 #include "utility.h"
 
 enum param_types {
-    PARAM_CLIENTS      = (unsigned char)'c',
+    PARAM_CLIENTS      = (unsigned char)'t',
     PARAM_NUMBER       = (unsigned char)'n',
     PARAM_QUERIES      = (unsigned char)'q',
     PARAM_RELATIONS    = (unsigned char)'r',
-    PARAM_TRANSACTIONS = (unsigned char)'t',
+    PARAM_TRANSACTIONS = (unsigned char)'x',
     PARAM_USER         = (unsigned char)'u',
 };
 
@@ -116,7 +116,7 @@ displayUsage (const char* appName)
 {
     printf("Usage: %s [options]\n", appName);
     puts("\nOptions:                                             (defaults)\n");
-    printf("    c <UINT>   Number of [c]lients                   (%i)\n",
+    printf("    t <UINT>   Number of [t]hreads                   (%i)\n",
            PARAM_DEFAULT_CLIENTS);
     printf("    n <UINT>   [n]umber of user queries/transaction  (%i)\n",
            PARAM_DEFAULT_NUMBER);
@@ -124,7 +124,7 @@ displayUsage (const char* appName)
            PARAM_DEFAULT_QUERIES);
     printf("    r <UINT>   Number of possible [r]elations        (%i)\n",
            PARAM_DEFAULT_RELATIONS);
-    printf("    t <UINT>   Number of [t]ransactions              (%i)\n",
+    printf("    x <UINT>   Number of transactions                (%i)\n",
            PARAM_DEFAULT_TRANSACTIONS);
     printf("    u <UINT>   Percentage of [u]ser transactions     (%i)\n",
            PARAM_DEFAULT_USER);
@@ -162,9 +162,9 @@ parseArgs (long argc, char* const argv[])
 
     setDefaultParams();
 
-    while ((opt = getopt(argc, argv, "c:n:q:r:t:u:")) != -1) {
+    while ((opt = getopt(argc, argv, "x:n:q:r:t:u:")) != -1) {
         switch (opt) {
-            case 'c':
+            case 'x':
             case 'n':
             case 'q':
             case 'r':
