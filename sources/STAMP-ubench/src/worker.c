@@ -92,18 +92,20 @@ worker_run (void* argPtr)
 
         /* Dummy loop to give enough time for prefetched
            data to arrive to cache */
+#if 0
         unsigned short j;
         j = busy;
         while(j--) {
             asm("");
         }        
+#endif
 
         long i;
         for(i = 0; i < step; i++) {
             long index = indicesPtr[curIndex];
             dataPtr[index]++;
         }
-        TM_END(1);
+        TM_END(0);
 
         if ((step > 0 && curIndex + step >= numIndices) ||
             (step < 0 && curIndex + step < 0)) {
