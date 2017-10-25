@@ -8,7 +8,7 @@ PCM        = $(LIB_PERF)
 PERF_COUNTERS_TOOL =
 
 CFLAGS+=-pthread -DHTM -DOLD_RTM_MACROSES
-CXXFLAGS+=-O3
+CXXFLAGS+=
 # Avoid missing libraries when running in simulator
 LDFLAGS  += -static
 
