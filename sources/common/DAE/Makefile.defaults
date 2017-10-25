@@ -31,6 +31,7 @@ DVFS_FLAGS=$(COMPILER_LIB)/libDAE_prof_ST.a -lcpufreq
 TM_INDIRCOUNT_SUFFIX=tm-indir$(INDIR_COUNT)
 TM_GRANCOUNT_SUFFIX=tm-gran$(GRAN_COUNT)
 TM_GRAN_SUFFIX=tm-gran
+GRAN_SUFFIX=gran
 TM_EXTRACT_SUFFIX=tm-extract
 MARKED_SUFFIX=marked
 
@@ -44,7 +45,7 @@ get_marked=$$(addprefix $(BINDIR)/, $$(addsuffix .$$(MARKED_SUFFIX).ll,$$(basena
 get_objects=$$(addprefix $(BINDIR)/, $$(addsuffix .ll, $$(basename $$(SRCS))))
 
 # gran.ll files required by Globals.ll and DAE-header.ll
-get_gran_files=$$(shell grep -sl "__kernel__" $(BINDIR)/*.$(MARKED_SUFFIX).ll | sed 's/.$(MARKED_SUFFIX).ll/.gran.ll/g')
+get_gran_files=$$(shell grep -sl "__kernel__" $(BINDIR)/*.$(MARKED_SUFFIX).ll | sed 's/.$(MARKED_SUFFIX).ll/.${GRAN_SUFFIX}.ll/g')
 
 # Debugging purposes: keep all generated ll files
 .PRECIOUS: %.ll
@@ -138,6 +139,10 @@ $(BINDIR)/%.ll: %.cc
 	-$(OPT) -S -loop-simplify -reg2mem -licm -load $(COMPILER_LIB)/libTMLoopChunk.so \
 	-tm-loop-chunk -bench-name $(BENCHMARK) -mem2reg -o $@ $<
 	#This step is actually useless as loop chunking is disabled
+
+%.${GRAN_SUFFIX}.ll: %.${MARKED_SUFFIX}.ll
+	-$(OPT) -S -loop-simplify -reg2mem -licm -load $(COMPILER_LIB)/libLoopChunk.so \
+	-loop-chunk -bench-name $(BENCHMARK) -mem2reg -o $@ $<
 
 %.$(TM_EXTRACT_SUFFIX).ll: %.$(TM_GRAN_SUFFIX).ll
 	$(OPT) -S -load $(COMPILER_LIB)/libTMLoopExtract.so \
