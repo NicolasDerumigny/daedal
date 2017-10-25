@@ -15,36 +15,36 @@ LINK=$(LLVM_BIN)/llvm-link
 OPT=$(LLVM_BIN)/opt
 CLANG=$(LLVM_BIN)/clang 
 CLANGCPP=$(LLVM_BIN)/clang++
+# Optimization level
+CFLAGS += -O3
+CXXFLAGS += -O3
 CFLAGS += -mrtm -Wno-override-module
 CXXFLAGS += -mrtm -Wno-override-module
 
 DVFS_FLAGS=$(COMPILER_LIB)/libDAE_prof_ST.a -lcpufreq
 
-# DAE Marking
-DAE_MARKER='__kernel__'
+######
+# Suffix definitions
+#
+
+# INDIR_COUNT and GRAN_COUNT set in Makefile.targets
+TM_INDIRCOUNT_SUFFIX=tm-indir$(INDIR_COUNT)
+TM_GRANCOUNT_SUFFIX=tm-gran$(GRAN_COUNT)
+TM_GRAN_SUFFIX=tm-gran
+TM_EXTRACT_SUFFIX=tm-extract
+MARKED_SUFFIX=marked
 
 ######
 # Helper definitions
 #
 
-# Retrieving information from target file name
-get_gran=$(shell echo $@ | sed -n 's/.*\gran\([0-9]*\)\..*/\1/p')
-get_gran_rule=$$(shell echo $$@ | sed -n 's/.*\gran\([0-9]*\)\..*/\1/p')
-get_indir=$(shell echo $@ | sed -n 's/.*\indir\([0-9]*\)\..*/\1/p')
-
 # Helper to generate prerequisites of rules
-get_dae_prerequisites=$$(shell echo $$@ | sed 's/indir.*/extract.ll/g')
-get_tm-dae_prerequisites=$$(shell echo `grep -l "__kernel__\|main" $(BINDIR)/*.marked.ll | sed 's=.marked.ll=.tm-gran.ll=g'` | sed "s=.tm-gran.ll=.$$*.tm-extract.ll=g")
-get_marked=$$(addprefix $(BINDIR)/, $$(addsuffix .marked.ll,$$(basename $$(SRCS))))
+get_extract=$$(addprefix $(BINDIR)/, $$(addsuffix .$$(TM_EXTRACT_SUFFIX).ll,$$(basename $$(SRCS))))
+get_marked=$$(addprefix $(BINDIR)/, $$(addsuffix .$$(MARKED_SUFFIX).ll,$$(basename $$(SRCS))))
 get_objects=$$(addprefix $(BINDIR)/, $$(addsuffix .ll, $$(basename $$(SRCS))))
-get_O3_objects=$$(addprefix $(BINDIR)/, $$(addsuffix .O3.ll, $$(basename $$(SRCS))))
-get_gran_files=$$(shell grep -sl "__kernel__" $(BINDIR)/*.marked.ll | sed 's/.marked.ll/.gran.ll/g')
-get_tm-gran_files=$$(shell grep -sl "__kernel__" $(BINDIR)/*.marked.ll | sed 's/.marked.ll/.tm-gran.ll/g')
-get_kernel_marked_files=$$(shell grep -l "__kernel__\|main" $(BINDIR)/*.marked.ll | sed 's/.marked.ll/.$$*.O3.ll/g')
-get_tm-full-kernel_marked_files=$$(shell grep -l "__kernel__\|main" $(BINDIR)/*.marked.ll | sed 's/.marked.ll/.$$*.$(TM_FULL_DAE_SUFFIX).O3.ll/g')
-get_tm-dae-kernel_marked_files=$$(shell grep -l "__kernel__\|main" $(BINDIR)/*.marked.ll | sed 's/.marked.ll/.$$*.$(TM_FULL_DAE_SUFFIX).O3.ll/g')
-get_unmodified_files=$$(shell grep -l -L '__kernel__\|main' $(BINDIR)/*.marked.ll | sed 's/.marked/.marked.O3/g')
 
+# gran.ll files required by Globals.ll and DAE-header.ll
+get_gran_files=$$(shell grep -sl "__kernel__" $(BINDIR)/*.$(MARKED_SUFFIX).ll | sed 's/.$(MARKED_SUFFIX).ll/.gran.ll/g')
 
 # Debugging purposes: keep all generated ll files
 .PRECIOUS: %.ll
@@ -58,8 +58,6 @@ get_unmodified_files=$$(shell grep -l -L '__kernel__\|main' $(BINDIR)/*.marked.l
 all: perf libs $(get_marked)
 	$(MAKE) $(TARGETS)
 
-
-
 libs:
 	$(MAKE) -C $(LIB_DIR)
 
@@ -69,48 +67,38 @@ perf:
 $(BINDIR)/%.$(ORIGINAL_SUFFIX): $(get_objects)
 	$(CLANGCPP) $(CXXFLAGS) $(CFLAGS) $^ $(LIB_OBJS) $(LDFLAGS) $(LIB_LLS) -L $(COMPILER_LIB) -o $@
 
-$(BINDIR)/$(BENCHMARK).$(ARGS_SUFFIX): $(BINDIR)/$(BENCHMARK).$(ARGS_SUFFIX).O3.ll
+$(BINDIR)/$(BENCHMARK).$(ARGS_SUFFIX): $(BINDIR)/$(BENCHMARK).$(ARGS_SUFFIX).ll
 	$(CLANGCPP) $(CXXFLAGS) $(CFLAGS) $^ $(LIB_OBJS) $(LDFLAGS) $(DVFS_FLAGS) -o $@
 
-$(BINDIR)/$(BENCHMARK).%.$(TM_FULL_DAE_SUFFIX): $(BINDIR)/$(BENCHMARK).%.$(TM_FULL_DAE_SUFFIX).O3.ll $(BINDIR)/$(BENCHMARK).%.$(TM_FULL_DAE_SUFFIX).GV_DAE.ll
+$(BINDIR)/$(BENCHMARK).%.$(TM_FULL_DAE_SUFFIX): $(BINDIR)/$(BENCHMARK).%.$(TM_FULL_DAE_SUFFIX).ll $(BINDIR)/$(BENCHMARK).%.$(TM_FULL_DAE_SUFFIX).GV_DAE.ll
 	$(CLANGCPP) $(CXXFLAGS) $(CFLAGS) $^ $(LIB_OBJS) $(LDFLAGS) $(DVFS_FLAGS) -o $@
 
-$(BINDIR)/$(BENCHMARK).%.$(TM_DAE_SUFFIX): $(BINDIR)/$(BENCHMARK).%.$(TM_DAE_SUFFIX).O3.ll $(BINDIR)/$(BENCHMARK).%.$(TM_DAE_SUFFIX).GV_DAE.ll
+$(BINDIR)/$(BENCHMARK).%.$(TM_DAE_SUFFIX): $(BINDIR)/$(BENCHMARK).%.$(TM_DAE_SUFFIX).ll $(BINDIR)/$(BENCHMARK).%.$(TM_DAE_SUFFIX).GV_DAE.ll
 	$(CLANGCPP) $(CXXFLAGS) $(CFLAGS) $^ $(LIB_OBJS) $(LDFLAGS) $(DVFS_FLAGS) -o $@
 
-$(BINDIR)/$(BENCHMARK).%: $(get_unmodified_files) $(get_kernel_marked_files) $(BINDIR)/$(BENCHMARK).%.GV_DAE.ll
-	$(CLANGCPP) $(CXXFLAGS) $(CFLAGS) $^ $(LIB_OBJS) $(LDFLAGS) $(DVFS_FLAGS) -o $@
-
-$(BINDIR)/$(BENCHMARK).$(ARGS_SUFFIX).O3.ll: $(BINDIR)/$(BENCHMARK).$(ARGS_SUFFIX).ll
+# tm-args binary must be built from original .ll so that compilation
+# steps are identical except for the extra pass
+$(BINDIR)/$(BENCHMARK).$(ARGS_SUFFIX).ll: $(BINDIR)/$(BENCHMARK).$(ORIGINAL_SUFFIX).ll
 	$(OPT) -S -load $(COMPILER_LIB)/libTMArgsPrefetcher.so -tm-prefetch-args -o $@ $^
 
-$(BINDIR)/$(BENCHMARK).%.$(TM_FULL_DAE_SUFFIX).O3.ll: $(BINDIR)/$(BENCHMARK).tm-gran$(get_gran_rule).$(TM_DAE_SUFFIX).ll
-	$(eval $@_INDIR:=$(get_indir))
+$(BINDIR)/$(BENCHMARK).$(TM_GRANCOUNT_SUFFIX).$(TM_INDIRCOUNT_SUFFIX).$(TM_FULL_DAE_SUFFIX).ll: $(BINDIR)/$(BENCHMARK).$(TM_EXTRACT_SUFFIX).ll
 	$(OPT) -S -load $(COMPILER_LIB)/libTMFKernelPrefetch.so \
 	-tbaa -basicaa -tm-f-kernel-prefetch \
-        -indir-thresh $($@_INDIR) -follow-partial \
+        -indir-thresh $(INDIR_COUNT) -follow-partial \
 	-always-inline -load $(COMPILER_LIB)/libRemoveRedundantPref.so -rrp \
 	-load $(COMPILER_LIB)/libTMArgsPrefetcher.so -tm-prefetch-args -o $@ $^
 
-$(BINDIR)/$(BENCHMARK).%.$(TM_DAE_SUFFIX).O3.ll: $(BINDIR)/$(BENCHMARK).tm-gran$(get_gran_rule).$(TM_DAE_SUFFIX).ll
-	$(eval $@_INDIR:=$(get_indir))
+$(BINDIR)/$(BENCHMARK).$(TM_GRANCOUNT_SUFFIX).$(TM_INDIRCOUNT_SUFFIX).$(TM_DAE_SUFFIX).ll: $(BINDIR)/$(BENCHMARK).$(TM_EXTRACT_SUFFIX).ll
 	$(OPT) -S -load $(COMPILER_LIB)/libTMFKernelPrefetch.so \
 	-tbaa -basicaa -tm-f-kernel-prefetch \
-        -indir-thresh $($@_INDIR) -follow-partial \
+        -indir-thresh $(INDIR_COUNT) -follow-partial \
 	-always-inline -load $(COMPILER_LIB)/libRemoveRedundantPref.so -rrp -o $@ $^
 
-$(BINDIR)/$(BENCHMARK).$(ARGS_SUFFIX).ll: $(get_O3_objects) $(LIB_LLS)
+$(BINDIR)/$(BENCHMARK).$(ORIGINAL_SUFFIX).ll: $(get_objects) $(LIB_LLS)
 	$(LINK) -S -o $@ $^
 
-$(BINDIR)/$(BENCHMARK).%.$(TM_DAE_SUFFIX).ll: $(get_tm-dae_prerequisites) $(get_unmodified_files) $(LIB_LLS)
+$(BINDIR)/$(BENCHMARK).$(TM_EXTRACT_SUFFIX).ll: $(get_extract) $(LIB_LLS)
 	$(LINK) -S -o $@ $^
-
-%.dae.ll: $(get_dae_prerequisites)
-	$(eval $@_INDIR:=$(get_indir))
-	$(OPT) -S -load $(COMPILER_LIB)/libFKernelPrefetch.so \
-	-tbaa -basicaa -f-kernel-prefetch \
-        -indir-thresh $($@_INDIR) -follow-partial \
-	-always-inline -O3  -load $(COMPILER_LIB)/libRemoveRedundantPref.so -rrp -o $@ $^
 
 $(BINDIR)/DAE-header.ll: $(get_gran_files)
 ifdef <
@@ -120,8 +108,7 @@ else
 endif
 
 %.GV_DAE.ll: $(BINDIR)/DAE-header.ll $(BINDIR)/Globals.ll
-	$(eval $@_GRAN:=$(get_gran))
-	cat $^ |  sed 's/\(_granularity.* \)[0-9]\+/\1'"${$@_GRAN}"'/g' > $@
+	cat $^ |  sed 's/\(_granularity.* \)[0-9]\+/\1'"$(GRAN_COUNT)"'/g' > $@
 
 $(BINDIR)/Globals.ll: $(get_gran_files)
 	touch Globals.ll
@@ -142,34 +129,19 @@ $(BINDIR)/%.ll: %.cc
 	mkdir -p $(BINDIR)/$(shell dirname $<)
 	$(CLANGCPP) $(CXXFLAGS)  -I $(LIB_DIR)/lib $^ -S -emit-llvm -o $@
 
-%.O3.ll: %.ll
-	$(OPT) -S -O3 $^ -o $@
-
-# DAE related rules
-#
-%.marked.ll: %.stats.ll
+%.$(MARKED_SUFFIX).ll: %.stats.ll
 	 $(OPT) -S -load $(COMPILER_LIB)/libMarkLoopsToTransform.so \
 	-mark-loops -require-delinquent=false -bench-name $(BENCHMARK) \
 	-o $@ $<; \
 
-%.tm-gran.ll: %.marked.ll
+%.$(TM_GRAN_SUFFIX).ll: %.$(MARKED_SUFFIX).ll
 	-$(OPT) -S -loop-simplify -reg2mem -licm -load $(COMPILER_LIB)/libTMLoopChunk.so \
 	-tm-loop-chunk -bench-name $(BENCHMARK) -mem2reg -o $@ $<
-	#This step is actually useless are loop chunking is disable
+	#This step is actually useless as loop chunking is disabled
 
-%.gran.ll: %.marked.ll
-	-$(OPT) -S -loop-simplify -reg2mem -licm -load $(COMPILER_LIB)/libLoopChunk.so \
-	-loop-chunk -bench-name $(BENCHMARK) -mem2reg -o $@ $<
-
-
-%.tm-extract.ll: $$(shell echo $$@ | sed 's/.tm-gran[0-9]\+.*/.tm-gran.ll/g')
+%.$(TM_EXTRACT_SUFFIX).ll: %.$(TM_GRAN_SUFFIX).ll
 	$(OPT) -S -load $(COMPILER_LIB)/libTMLoopExtract.so \
 	-aggregate-extracted-args -tm-loop-extract -is-dae -bench-name $(BENCHMARK) -o $@ $<; \
-
-%.extract.ll: $$(shell echo $$@ | sed 's/.gran[0-9]\+.*/.gran.ll/g')
-	$(OPT) -S -load $(COMPILER_LIB)/libLoopExtract.so \
-	-aggregate-extracted-args -second-loop-extract -is-dae -bench-name $(BENCHMARK) -o $@ $<; \
-
 
 %.stats.ll: %.ll
 	cat $< \
@@ -177,9 +149,6 @@ $(BINDIR)/%.ll: %.cc
 	| sed 's/call void @exit(/call void @profiler_print_stats()\n  &/g' \
 	| sed 's/declare void @exit(/declare void @profiler_print_stats()\n&/g' \
 	> $@
-
-%.cae.ll: %.extract.ll
-	$(OPT) -S -load $(COMPILER_LIB)/libTimeOrig.so -papi-orig -always-inline -o $@ $<;
 
 clean:
 	rm -f *.o $(BINDIR)/* && $(MAKE) -C $(LIB_DIR) clean
