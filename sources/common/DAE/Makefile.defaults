@@ -27,10 +27,6 @@ DVFS_FLAGS=$(COMPILER_LIB)/libDAE_prof_ST.a -lcpufreq
 # Suffix definitions
 #
 
-# INDIR_COUNT and GRAN_COUNT set in Makefile.targets
-TM_INDIRCOUNT_SUFFIX=tm-indir$(INDIR_COUNT)
-TM_GRANCOUNT_SUFFIX=tm-gran$(GRAN_COUNT)
-TM_GRAN_SUFFIX=tm-gran
 GRAN_SUFFIX=gran
 TM_EXTRACT_SUFFIX=tm-extract
 MARKED_SUFFIX=marked
@@ -40,7 +36,9 @@ MARKED_SUFFIX=marked
 #
 
 # Helper to generate prerequisites of rules
-get_extract=$$(addprefix $(BINDIR)/, $$(addsuffix .$$(TM_EXTRACT_SUFFIX).ll,$$(basename $$(SRCS))))
+get_tm-dae_prerequisites=$$(shell echo `grep -l "__kernel__\|main" $(BINDIR)/*.marked.ll | sed 's=.marked.ll=.tm-gran.ll=g'` | sed "s=.tm-gran.ll=.$$*.tm-extract.ll=g")
+
+get_extract=$$(addprefix $(BINDIR)/, $$(addsuffix .$$(TM_EXTRACT_SUFFIX).ll,$$(addsuffix .$$(TM_GRANCOUNT_SUFFIX),$$(basename $$(SRCS)))))
 get_marked=$$(addprefix $(BINDIR)/, $$(addsuffix .$$(MARKED_SUFFIX).ll,$$(basename $$(SRCS))))
 get_objects=$$(addprefix $(BINDIR)/, $$(addsuffix .ll, $$(basename $$(SRCS))))
 
@@ -82,14 +80,14 @@ $(BINDIR)/$(BENCHMARK).%.$(TM_DAE_SUFFIX): $(BINDIR)/$(BENCHMARK).%.$(TM_DAE_SUF
 $(BINDIR)/$(BENCHMARK).$(ARGS_SUFFIX).ll: $(BINDIR)/$(BENCHMARK).$(ORIGINAL_SUFFIX).ll
 	$(OPT) -S -load $(COMPILER_LIB)/libTMArgsPrefetcher.so -tm-prefetch-args -o $@ $^
 
-$(BINDIR)/$(BENCHMARK).$(TM_GRANCOUNT_SUFFIX).$(TM_INDIRCOUNT_SUFFIX).$(TM_FULL_DAE_SUFFIX).ll: $(BINDIR)/$(BENCHMARK).$(TM_EXTRACT_SUFFIX).ll
+$(BINDIR)/$(BENCHMARK).$(TM_GRANCOUNT_SUFFIX).$(TM_INDIRCOUNT_SUFFIX).$(TM_FULL_DAE_SUFFIX).ll: $(BINDIR)/$(BENCHMARK).$(TM_GRANCOUNT_SUFFIX).$(TM_FULL_DAE_SUFFIX).ll
 	$(OPT) -S -load $(COMPILER_LIB)/libTMFKernelPrefetch.so \
 	-tbaa -basicaa -tm-f-kernel-prefetch \
-        -indir-thresh $(INDIR_COUNT) -follow-partial \
+	-indir-thresh $(INDIR_COUNT) -follow-partial \
 	-always-inline -load $(COMPILER_LIB)/libRemoveRedundantPref.so -rrp \
 	-load $(COMPILER_LIB)/libTMArgsPrefetcher.so -tm-prefetch-args -o $@ $^
 
-$(BINDIR)/$(BENCHMARK).$(TM_GRANCOUNT_SUFFIX).$(TM_INDIRCOUNT_SUFFIX).$(TM_DAE_SUFFIX).ll: $(BINDIR)/$(BENCHMARK).$(TM_EXTRACT_SUFFIX).ll
+$(BINDIR)/$(BENCHMARK).$(TM_GRANCOUNT_SUFFIX).$(TM_INDIRCOUNT_SUFFIX).$(TM_DAE_SUFFIX).ll: $(BINDIR)/$(BENCHMARK).$(TM_GRANCOUNT_SUFFIX).$(TM_DAE_SUFFIX).ll
 	$(OPT) -S -load $(COMPILER_LIB)/libTMFKernelPrefetch.so \
 	-tbaa -basicaa -tm-f-kernel-prefetch \
         -indir-thresh $(INDIR_COUNT) -follow-partial \
@@ -98,8 +96,15 @@ $(BINDIR)/$(BENCHMARK).$(TM_GRANCOUNT_SUFFIX).$(TM_INDIRCOUNT_SUFFIX).$(TM_DAE_S
 $(BINDIR)/$(BENCHMARK).$(ORIGINAL_SUFFIX).ll: $(get_objects) $(LIB_LLS)
 	$(LINK) -S -o $@ $^
 
-$(BINDIR)/$(BENCHMARK).$(TM_EXTRACT_SUFFIX).ll: $(get_extract) $(LIB_LLS)
+$(BINDIR)/$(BENCHMARK).$(TM_GRANCOUNT_SUFFIX).$(TM_DAE_SUFFIX).ll: $(get_extract) $(LIB_LLS)
 	$(LINK) -S -o $@ $^
+
+$(BINDIR)/$(BENCHMARK).$(TM_GRANCOUNT_SUFFIX).$(TM_FULL_DAE_SUFFIX).ll: $(get_extract) $(LIB_LLS)
+	$(LINK) -S -o $@ $^
+
+$(BINDIR)/$(BENCHMARK).%.$(TM_DAE_SUFFIX).ll: $(get_tm-dae_prerequisites) $(get_unmodified_files) $(LIB_LLS)
+	$(LINK) -S -o $@ $^
+
 
 $(BINDIR)/DAE-header.ll: $(get_gran_files)
 ifdef <
@@ -144,7 +149,7 @@ $(BINDIR)/%.ll: %.cc
 	-$(OPT) -S -loop-simplify -reg2mem -licm -load $(COMPILER_LIB)/libLoopChunk.so \
 	-loop-chunk -bench-name $(BENCHMARK) -mem2reg -o $@ $<
 
-%.$(TM_EXTRACT_SUFFIX).ll: %.$(TM_GRAN_SUFFIX).ll
+%.$(TM_GRANCOUNT_SUFFIX).$(TM_EXTRACT_SUFFIX).ll: %.$(TM_GRAN_SUFFIX).ll
 	$(OPT) -S -load $(COMPILER_LIB)/libTMLoopExtract.so \
 	-aggregate-extracted-args -tm-loop-extract -is-dae -bench-name $(BENCHMARK) -o $@ $<; \
 
