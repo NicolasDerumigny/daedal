@@ -5,7 +5,8 @@
 
 BENCHMARK = STAMP-$(PROG)
 
-LIB_LLS := ${SRCS_LIBS:.c=.ll}
+# Careful! Keep LLS suffix in sync with STAMP-include/lib/Makefile
+LIB_LLS := ${SRCS_LIBS:.c=.O3.ll}
 
 LIB_OBJS := $(LIB_GEM5)/m5op_x86.o \
             $(LIB_GEM5)/m5ops_wrapper.o \

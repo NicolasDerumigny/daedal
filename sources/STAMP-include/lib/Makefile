@@ -18,6 +18,8 @@ CC      := $(LLVM_BIN)/clang
 GCC     := gcc
 AR      := ar
 CFLAGS  := -Wall -DOLD_RTM_MACROSES -DSET_AFFINITY -DX86make -pthread
+# Always generate optimize intermediate/object code for libraries
+CFLAGS  += -O3
 AR_FLAGS  := rvs
 
 SRCS := \
@@ -35,8 +37,10 @@ SRCS := \
     rbtree.c \
 	thread.c \
 	vector.c \
-#
-LLS := ${SRCS:.c=.ll}
+
+# Careful! Keep LLS suffix in sync with common/Makefile.common
+# .ll files are appended .O3 when -O3 passed in CFLAGS to clang
+LLS := ${SRCS:.c=.O3.ll}
 
 
 PROG_TEST := \
@@ -67,7 +71,7 @@ all: $(OBJS) $(LLS)
 %.o: %.c
 	$(CC) -o $@ -c $< $(CFLAGS)
 
-%.ll: %.c
+%.O3.ll: %.c
 	$(CC) $(CFLAGS) $^ -S -emit-llvm -o $@
 
 
