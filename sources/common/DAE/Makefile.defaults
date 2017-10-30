@@ -16,8 +16,8 @@ OPT=$(LLVM_BIN)/opt
 CLANG=$(LLVM_BIN)/clang 
 CLANGCPP=$(LLVM_BIN)/clang++
 # -O3 deliberately not added to CFLAGS in order to generate unoptimized .ll files
+CFLAGS += -O3
 CFLAGS += -mrtm -Wno-override-module
-
 # Enable optimizations in the final step -O3
 CXXFLAGS += -O3
 CXXFLAGS += -mrtm -Wno-override-module
@@ -155,7 +155,7 @@ $(BINDIR)/%.ll: %.cc
 
 # DAE related rules
 #
-%.marked.ll: %.stats.ll
+%.marked.ll: %.stats.O3.ll
 	 $(OPT) -S -load $(COMPILER_LIB)/libMarkLoopsToTransform.so \
 	-mark-loops -require-delinquent=false -bench-name $(BENCHMARK) \
 	-o $@ $<; \
@@ -179,7 +179,7 @@ $(BINDIR)/%.ll: %.cc
 	-aggregate-extracted-args -second-loop-extract -is-dae -bench-name $(BENCHMARK) -o $@ $<; \
 
 
-%.stats.ll: %.ll
+%.stats.O3.ll: %.O3.ll
 	cat $< \
 	| sed 's/tail \(call void @exit(\)/\1/g' \
 	| sed 's/call void @exit(/call void @profiler_print_stats()\n  &/g' \
