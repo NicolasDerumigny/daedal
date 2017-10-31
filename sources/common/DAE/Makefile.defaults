@@ -155,7 +155,16 @@ $(BINDIR)/%.ll: %.cc
 
 # DAE related rules
 #
+
+
+# Printing stats introduces an overhead. For gathering performance
+# numbers, stats should be disabled to get the correct execution time
+# (fair for all versions).
+ifeq ($(ENABLE_STATS),yes)
 %.marked.ll: %.stats.O3.ll
+else
+%.marked.ll: %.O3.ll
+endif
 	 $(OPT) -S -load $(COMPILER_LIB)/libMarkLoopsToTransform.so \
 	-mark-loops -require-delinquent=false -bench-name $(BENCHMARK) \
 	-o $@ $<; \
