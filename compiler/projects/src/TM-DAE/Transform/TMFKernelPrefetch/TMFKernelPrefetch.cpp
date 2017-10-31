@@ -455,7 +455,7 @@ protected:
 			return false;
 		}
 
-		bool succeeded = swoopifyCore(F, toPref);
+		bool succeeded = swoopifyCore(F, toPref, true);
 		return succeeded;
 	}
 
