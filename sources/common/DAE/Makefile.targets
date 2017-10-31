@@ -5,7 +5,7 @@
 # 
 
 # Targets to build
-INDIR_COUNT=1
+INDIR_COUNT=25
 GRAN_COUNT=1
 
 ENABLE_STATS=no # yes
