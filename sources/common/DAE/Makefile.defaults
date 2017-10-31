@@ -56,16 +56,16 @@ endif
 perf:
 	$(MAKE) PERF_TOOL=$(PERF_COUNTERS_TOOL) -C $(LIB_PERF)
 
-$(BINDIR)/$(BENCHMARK).$(ORIGINAL_SUFFIX): $(BINDIR)/$(BENCHMARK).$(ORIGINAL_SUFFIX).ll
+$(BINDIR)/$(BENCHMARK).$(ORIGINAL_SUFFIX): $(BINDIR)/$(BENCHMARK).$(ORIGINAL_SUFFIX).ll $(LIB_LLS)
 	$(CLANGCPP) $(CXXFLAGS) $(CFLAGS) $^ $(LIB_OBJS) $(LDFLAGS) $(DVFS_FLAGS) -o $@
 
-$(BINDIR)/$(BENCHMARK).$(ARGS_SUFFIX): $(BINDIR)/$(BENCHMARK).$(ARGS_SUFFIX).ll
+$(BINDIR)/$(BENCHMARK).$(ARGS_SUFFIX): $(BINDIR)/$(BENCHMARK).$(ARGS_SUFFIX).ll $(LIB_LLS)
 	$(CLANGCPP) $(CXXFLAGS) $(CFLAGS) $^ $(LIB_OBJS) $(LDFLAGS) $(DVFS_FLAGS) -o $@
 
-$(BINDIR)/$(BENCHMARK).$(TM_FULL_DAE_SUFFIX): $(BINDIR)/$(BENCHMARK).$(TM_FULL_DAE_SUFFIX).ll $(BINDIR)/$(BENCHMARK).GV_DAE.ll
+$(BINDIR)/$(BENCHMARK).$(TM_FULL_DAE_SUFFIX): $(BINDIR)/$(BENCHMARK).$(TM_FULL_DAE_SUFFIX).ll $(LIB_LLS) $(BINDIR)/$(BENCHMARK).GV_DAE.ll
 	$(CLANGCPP) $(CXXFLAGS) $(CFLAGS) $^ $(LIB_OBJS) $(LDFLAGS) $(DVFS_FLAGS) -o $@
 
-$(BINDIR)/$(BENCHMARK).$(TM_DAE_SUFFIX): $(BINDIR)/$(BENCHMARK).$(TM_DAE_SUFFIX).ll $(BINDIR)/$(BENCHMARK).GV_DAE.ll
+$(BINDIR)/$(BENCHMARK).$(TM_DAE_SUFFIX): $(BINDIR)/$(BENCHMARK).$(TM_DAE_SUFFIX).ll $(LIB_LLS) $(BINDIR)/$(BENCHMARK).GV_DAE.ll
 	$(CLANGCPP) $(CXXFLAGS) $(CFLAGS) $^ $(LIB_OBJS) $(LDFLAGS) $(DVFS_FLAGS) -o $@
 
 $(BINDIR)/$(BENCHMARK).$(ARGS_SUFFIX).ll: $(BINDIR)/$(BENCHMARK).$(ORIGINAL_SUFFIX).ll
@@ -87,7 +87,7 @@ $(BINDIR)/$(BENCHMARK).$(TM_DAE_SUFFIX).ll: $(BINDIR)/$(BENCHMARK).$(ORIGINAL_SU
 
 $(BINDIR)/$(BENCHMARK).$(ORIGINAL_SUFFIX).extracted.ll: $(BINDIR)/$(BENCHMARK).$(ORIGINAL_SUFFIX).marked.ll
 	$(OPT) -S \
-#	-loop-simplify -licm \
+	-loop-simplify -licm \
 	-load $(COMPILER_LIB)/libTMLoopExtract.so -aggregate-extracted-args -tm-loop-extract -is-dae -bench-name $(BENCHMARK) \
 	-o $@ $<
 
@@ -98,7 +98,7 @@ $(BINDIR)/$(BENCHMARK).$(ORIGINAL_SUFFIX).marked.ll: $(BINDIR)/$(BENCHMARK).$(OR
 
 $(BINDIR)/$(BENCHMARK).$(ARGS_SUFFIX).extracted.ll: $(BINDIR)/$(BENCHMARK).$(ARGS_SUFFIX).marked.ll
 	$(OPT) -S \
-#	-loop-simplify -licm \
+	-loop-simplify -licm \
 	-load $(COMPILER_LIB)/libTMLoopExtract.so -aggregate-extracted-args -tm-loop-extract -is-dae -bench-name $(BENCHMARK) \
 	-o $@ $<
 
@@ -111,9 +111,9 @@ $(BINDIR)/$(BENCHMARK).$(ARGS_SUFFIX).marked.ll: $(BINDIR)/$(BENCHMARK).$(ARGS_S
 # numbers, stats should be disabled to get the correct execution time
 # (fair for all versions).
 ifeq ($(ENABLE_STATS),yes)
-$(BINDIR)/$(BENCHMARK).$(ORIGINAL_SUFFIX).ll: $(get_stats_objects) $(LIB_LLS)
+$(BINDIR)/$(BENCHMARK).$(ORIGINAL_SUFFIX).ll: $(get_stats_objects)
 else
-$(BINDIR)/$(BENCHMARK).$(ORIGINAL_SUFFIX).ll: $(get_objects) $(LIB_LLS)
+$(BINDIR)/$(BENCHMARK).$(ORIGINAL_SUFFIX).ll: $(get_objects)
 endif
 	$(LINK) -S -o $@ $^
 
