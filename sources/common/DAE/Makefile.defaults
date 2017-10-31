@@ -31,24 +31,10 @@ DAE_MARKER='__kernel__'
 # Helper definitions
 #
 
-# Retrieving information from target file name
-get_gran=$(shell echo $@ | sed -n 's/.*\gran\([0-9]*\)\..*/\1/p')
-get_gran_rule=$$(shell echo $$@ | sed -n 's/.*\gran\([0-9]*\)\..*/\1/p')
-get_indir=$(shell echo $@ | sed -n 's/.*\indir\([0-9]*\)\..*/\1/p')
-
 # Helper to generate prerequisites of rules
-get_dae_prerequisites=$$(shell echo $$@ | sed 's/indir.*/extract.ll/g')
-get_tm-dae_prerequisites=$$(shell echo `grep -l "__kernel__\|main" $(BINDIR)/*.marked.ll | sed 's=.marked.ll=.tm-gran.ll=g'` | sed "s=.tm-gran.ll=.$$*.tm-extract.ll=g")
-get_marked=$$(addprefix $(BINDIR)/, $$(addsuffix .marked.ll,$$(basename $$(SRCS))))
 get_objects=$$(addprefix $(BINDIR)/, $$(addsuffix .ll, $$(basename $$(SRCS))))
-get_O3_objects=$$(addprefix $(BINDIR)/, $$(addsuffix .O3.ll, $$(basename $$(SRCS))))
+get_stats_objects=$$(addprefix $(BINDIR)/, $$(addsuffix .stats.ll,$$(basename $$(SRCS))))
 get_gran_files=$$(shell grep -sl "__kernel__" $(BINDIR)/*.marked.ll | sed 's/.marked.ll/.gran.ll/g')
-get_tm-gran_files=$$(shell grep -sl "__kernel__" $(BINDIR)/*.marked.ll | sed 's/.marked.ll/.tm-gran.ll/g')
-get_kernel_marked_files=$$(shell grep -l "__kernel__\|main" $(BINDIR)/*.marked.ll | sed 's/.marked.ll/.$$*.O3.ll/g')
-get_tm-full-kernel_marked_files=$$(shell grep -l "__kernel__\|main" $(BINDIR)/*.marked.ll | sed 's/.marked.ll/.$$*.$(TM_FULL_DAE_SUFFIX).O3.ll/g')
-get_tm-dae-kernel_marked_files=$$(shell grep -l "__kernel__\|main" $(BINDIR)/*.marked.ll | sed 's/.marked.ll/.$$*.$(TM_FULL_DAE_SUFFIX).O3.ll/g')
-get_unmodified_files=$$(shell grep -l -L '__kernel__\|main' $(BINDIR)/*.marked.ll | sed 's/.marked/.marked.O3/g')
-
 
 # Debugging purposes: keep all generated ll files
 .PRECIOUS: %.ll
@@ -59,10 +45,8 @@ get_unmodified_files=$$(shell grep -l -L '__kernel__\|main' $(BINDIR)/*.marked.l
 
 # Create marked files first (marked whether to decouple or not), then
 # evaluate how to build the targets
-all: perf libs $(get_marked)
+all: perf libs
 	$(MAKE) $(TARGETS)
-
-
 
 libs: $(SRCS_LIBS)
 ifdef SRCS_LIBS
@@ -72,53 +56,69 @@ endif
 perf:
 	$(MAKE) PERF_TOOL=$(PERF_COUNTERS_TOOL) -C $(LIB_PERF)
 
-
-
-$(BINDIR)/$(BENCHMARK).$(ORIGINAL_SUFFIX): $(BINDIR)/$(BENCHMARK).$(ORIGINAL_SUFFIX).O3.ll
-	$(CLANGCPP) $(CXXFLAGS) $(CFLAGS) $^ $(LIB_OBJS) $(LDFLAGS) -o $@
-
-$(BINDIR)/$(BENCHMARK).$(ARGS_SUFFIX): $(BINDIR)/$(BENCHMARK).$(ARGS_SUFFIX).O3.ll
+$(BINDIR)/$(BENCHMARK).$(ORIGINAL_SUFFIX): $(BINDIR)/$(BENCHMARK).$(ORIGINAL_SUFFIX).ll
 	$(CLANGCPP) $(CXXFLAGS) $(CFLAGS) $^ $(LIB_OBJS) $(LDFLAGS) $(DVFS_FLAGS) -o $@
 
-$(BINDIR)/$(BENCHMARK).%.$(TM_FULL_DAE_SUFFIX): $(BINDIR)/$(BENCHMARK).%.$(TM_FULL_DAE_SUFFIX).O3.ll $(BINDIR)/$(BENCHMARK).%.$(TM_FULL_DAE_SUFFIX).GV_DAE.ll
+$(BINDIR)/$(BENCHMARK).$(ARGS_SUFFIX): $(BINDIR)/$(BENCHMARK).$(ARGS_SUFFIX).ll
 	$(CLANGCPP) $(CXXFLAGS) $(CFLAGS) $^ $(LIB_OBJS) $(LDFLAGS) $(DVFS_FLAGS) -o $@
 
-$(BINDIR)/$(BENCHMARK).%.$(TM_DAE_SUFFIX): $(BINDIR)/$(BENCHMARK).%.$(TM_DAE_SUFFIX).O3.ll $(BINDIR)/$(BENCHMARK).%.$(TM_DAE_SUFFIX).GV_DAE.ll
+$(BINDIR)/$(BENCHMARK).$(TM_FULL_DAE_SUFFIX): $(BINDIR)/$(BENCHMARK).$(TM_FULL_DAE_SUFFIX).ll $(BINDIR)/$(BENCHMARK).GV_DAE.ll
 	$(CLANGCPP) $(CXXFLAGS) $(CFLAGS) $^ $(LIB_OBJS) $(LDFLAGS) $(DVFS_FLAGS) -o $@
 
-$(BINDIR)/$(BENCHMARK).%: $(get_unmodified_files) $(get_kernel_marked_files) $(BINDIR)/$(BENCHMARK).%.GV_DAE.ll
+$(BINDIR)/$(BENCHMARK).$(TM_DAE_SUFFIX): $(BINDIR)/$(BENCHMARK).$(TM_DAE_SUFFIX).ll $(BINDIR)/$(BENCHMARK).GV_DAE.ll
 	$(CLANGCPP) $(CXXFLAGS) $(CFLAGS) $^ $(LIB_OBJS) $(LDFLAGS) $(DVFS_FLAGS) -o $@
 
-$(BINDIR)/$(BENCHMARK).$(ARGS_SUFFIX).O3.ll: $(BINDIR)/$(BENCHMARK).$(ORIGINAL_SUFFIX).O3.ll
-	$(OPT) -S -load $(COMPILER_LIB)/libTMArgsPrefetcher.so -tm-prefetch-args -o $@ $^
+$(BINDIR)/$(BENCHMARK).$(ARGS_SUFFIX).ll: $(BINDIR)/$(BENCHMARK).$(ORIGINAL_SUFFIX).ll
+	$(OPT) -S \
+	-load $(COMPILER_LIB)/libTMArgsPrefetcher.so -tm-prefetch-args \
+	-o $@ $^
 
-$(BINDIR)/$(BENCHMARK).%.$(TM_FULL_DAE_SUFFIX).O3.ll: $(BINDIR)/$(BENCHMARK).tm-gran$(get_gran_rule).$(TM_DAE_SUFFIX).ll
-	$(eval $@_INDIR:=$(get_indir))
-	$(OPT) -S -load $(COMPILER_LIB)/libTMFKernelPrefetch.so \
-	-tbaa -basicaa -tm-f-kernel-prefetch \
-        -indir-thresh $($@_INDIR) -follow-partial \
-	-always-inline -load $(COMPILER_LIB)/libRemoveRedundantPref.so -rrp \
-	-load $(COMPILER_LIB)/libTMArgsPrefetcher.so -tm-prefetch-args -o $@ $^
+$(BINDIR)/$(BENCHMARK).$(TM_FULL_DAE_SUFFIX).ll: $(BINDIR)/$(BENCHMARK).$(ARGS_SUFFIX).extracted.ll
+	$(OPT) -S \
+	-load $(COMPILER_LIB)/libTMFKernelPrefetch.so -tbaa -basicaa -tm-f-kernel-prefetch -indir-thresh 25 -follow-partial -always-inline \
+	-load $(COMPILER_LIB)/libRemoveRedundantPref.so -rrp \
+	-o $@ $^
 
-$(BINDIR)/$(BENCHMARK).%.$(TM_DAE_SUFFIX).O3.ll: $(BINDIR)/$(BENCHMARK).tm-gran$(get_gran_rule).$(TM_DAE_SUFFIX).ll
-	$(eval $@_INDIR:=$(get_indir))
-	$(OPT) -S -load $(COMPILER_LIB)/libTMFKernelPrefetch.so \
-	-tbaa -basicaa -tm-f-kernel-prefetch \
-        -indir-thresh $($@_INDIR) -follow-partial \
-	-always-inline -load $(COMPILER_LIB)/libRemoveRedundantPref.so -rrp -o $@ $^
+$(BINDIR)/$(BENCHMARK).$(TM_DAE_SUFFIX).ll: $(BINDIR)/$(BENCHMARK).$(ORIGINAL_SUFFIX).extracted.ll
+	$(OPT) -S \
+	-load $(COMPILER_LIB)/libTMFKernelPrefetch.so -tbaa -basicaa -tm-f-kernel-prefetch -indir-thresh 25 -follow-partial -always-inline \
+	-load $(COMPILER_LIB)/libRemoveRedundantPref.so -rrp \
+	-o $@ $^
 
-$(BINDIR)/$(BENCHMARK).$(ORIGINAL_SUFFIX).O3.ll: $(get_O3_objects) $(LIB_LLS)
+$(BINDIR)/$(BENCHMARK).$(ORIGINAL_SUFFIX).extracted.ll: $(BINDIR)/$(BENCHMARK).$(ORIGINAL_SUFFIX).marked.ll
+	$(OPT) -S \
+#	-loop-simplify -licm \
+	-load $(COMPILER_LIB)/libTMLoopExtract.so -aggregate-extracted-args -tm-loop-extract -is-dae -bench-name $(BENCHMARK) \
+	-o $@ $<
+
+$(BINDIR)/$(BENCHMARK).$(ORIGINAL_SUFFIX).marked.ll: $(BINDIR)/$(BENCHMARK).$(ORIGINAL_SUFFIX).ll
+	$(OPT) -S \
+	-load $(COMPILER_LIB)/libMarkLoopsToTransform.so -mark-loops -require-delinquent=false -bench-name $(BENCHMARK) \
+        -o $@ $<
+
+$(BINDIR)/$(BENCHMARK).$(ARGS_SUFFIX).extracted.ll: $(BINDIR)/$(BENCHMARK).$(ARGS_SUFFIX).marked.ll
+	$(OPT) -S \
+#	-loop-simplify -licm \
+	-load $(COMPILER_LIB)/libTMLoopExtract.so -aggregate-extracted-args -tm-loop-extract -is-dae -bench-name $(BENCHMARK) \
+	-o $@ $<
+
+$(BINDIR)/$(BENCHMARK).$(ARGS_SUFFIX).marked.ll: $(BINDIR)/$(BENCHMARK).$(ARGS_SUFFIX).ll
+	$(OPT) -S \
+	-load $(COMPILER_LIB)/libMarkLoopsToTransform.so -mark-loops -require-delinquent=false -bench-name $(BENCHMARK) \
+	-o $@ $<
+
+# Printing stats introduces an overhead. For gathering performance
+# numbers, stats should be disabled to get the correct execution time
+# (fair for all versions).
+ifeq ($(ENABLE_STATS),yes)
+$(BINDIR)/$(BENCHMARK).$(ORIGINAL_SUFFIX).ll: $(get_stats_objects) $(LIB_LLS)
+else
+$(BINDIR)/$(BENCHMARK).$(ORIGINAL_SUFFIX).ll: $(get_objects) $(LIB_LLS)
+endif
 	$(LINK) -S -o $@ $^
 
-$(BINDIR)/$(BENCHMARK).%.$(TM_DAE_SUFFIX).ll: $(get_tm-dae_prerequisites) $(get_unmodified_files) $(LIB_LLS)
-	$(LINK) -S -o $@ $^
-
-%.dae.ll: $(get_dae_prerequisites)
-	$(eval $@_INDIR:=$(get_indir))
-	$(OPT) -S -load $(COMPILER_LIB)/libFKernelPrefetch.so \
-	-tbaa -basicaa -f-kernel-prefetch \
-        -indir-thresh $($@_INDIR) -follow-partial \
-	-always-inline -O3  -load $(COMPILER_LIB)/libRemoveRedundantPref.so -rrp -o $@ $^
+$(BINDIR)/$(BENCHMARK).GV_DAE.ll: $(BINDIR)/DAE-header.ll $(BINDIR)/Globals.ll
+	cat $^ > $@
 
 $(BINDIR)/DAE-header.ll: $(get_gran_files)
 ifdef <
@@ -127,14 +127,9 @@ else
 	touch $@
 endif
 
-%.GV_DAE.ll: $(BINDIR)/DAE-header.ll $(BINDIR)/Globals.ll
-	$(eval $@_GRAN:=$(get_gran))
-	cat $^ |  sed 's/\(_granularity.* \)[0-9]\+/\1'"${$@_GRAN}"'/g' > $@
-
 $(BINDIR)/Globals.ll: $(get_gran_files)
 	touch Globals.ll
 	mv Globals.ll $(BINDIR)
-
 
 # General object rules
 #
@@ -148,52 +143,26 @@ $(BINDIR)/%.ll: %.cpp
 
 $(BINDIR)/%.ll: %.cc
 	mkdir -p $(BINDIR)/$(shell dirname $<)
-	$(CLANGCPP) $(CXXFLAGS)  -I $(LIB_DIR)/lib $^ -S -emit-llvm -o $@
+	$(CLANGCPP) $(CXXFLAGS) -I $(LIB_DIR)/lib $^ -S -emit-llvm -o $@
 
-%.O3.ll: %.ll
-	$(OPT) -S -O3 $^ -o $@
-
-# DAE related rules
-#
-
-
-# Printing stats introduces an overhead. For gathering performance
-# numbers, stats should be disabled to get the correct execution time
-# (fair for all versions).
-ifeq ($(ENABLE_STATS),yes)
-%.marked.ll: %.stats.O3.ll
-else
-%.marked.ll: %.O3.ll
-endif
-	 $(OPT) -S -load $(COMPILER_LIB)/libMarkLoopsToTransform.so \
-	-mark-loops -require-delinquent=false -bench-name $(BENCHMARK) \
-	-o $@ $<; \
-
-%.tm-gran.ll: %.marked.ll
-	-$(OPT) -S -loop-simplify -reg2mem -licm -load $(COMPILER_LIB)/libTMLoopChunk.so \
-	-tm-loop-chunk -bench-name $(BENCHMARK) -mem2reg -o $@ $<
-	#This step is actually useless are loop chunking is disable
-
-%.gran.ll: %.marked.ll
-	-$(OPT) -S -loop-simplify -reg2mem -licm -load $(COMPILER_LIB)/libLoopChunk.so \
-	-loop-chunk -bench-name $(BENCHMARK) -mem2reg -o $@ $<
-
-
-%.tm-extract.ll: $$(shell echo $$@ | sed 's/.tm-gran[0-9]\+.*/.tm-gran.ll/g')
-	$(OPT) -S -load $(COMPILER_LIB)/libTMLoopExtract.so \
-	-aggregate-extracted-args -tm-loop-extract -is-dae -bench-name $(BENCHMARK) -o $@ $<; \
-
-%.extract.ll: $$(shell echo $$@ | sed 's/.gran[0-9]\+.*/.gran.ll/g')
-	$(OPT) -S -load $(COMPILER_LIB)/libLoopExtract.so \
-	-aggregate-extracted-args -second-loop-extract -is-dae -bench-name $(BENCHMARK) -o $@ $<; \
-
-
-%.stats.O3.ll: %.O3.ll
+%.stats.ll: %.ll
 	cat $< \
 	| sed 's/tail \(call void @exit(\)/\1/g' \
 	| sed 's/call void @exit(/call void @profiler_print_stats()\n  &/g' \
 	| sed 's/declare void @exit(/declare void @profiler_print_stats()\n&/g' \
 	> $@
+
+# Printing stats introduces an overhead. For gathering performance
+# numbers, stats should be disabled to get the correct execution time
+# (fair for all versions).
+ifeq ($(ENABLE_STATS),yes)
+%.marked.ll: %.stats.ll
+else
+%.marked.ll: %.ll
+endif
+	$(OPT) -S \
+	-load $(COMPILER_LIB)/libMarkLoopsToTransform.so -mark-loops -require-delinquent=false -bench-name $(BENCHMARK) \
+	-o $@ $<
 
 %.cae.ll: %.extract.ll
 	$(OPT) -S -load $(COMPILER_LIB)/libTimeOrig.so -papi-orig -always-inline -o $@ $<;
