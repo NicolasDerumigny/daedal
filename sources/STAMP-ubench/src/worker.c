@@ -103,8 +103,8 @@ worker_run (void* argPtr)
         long i;
 #       pragma clang loop vectorize_width(1337)
         for(i = 0; i < step; i++) {
-            long index = indicesPtr[curIndex];
-            dataPtr[index]++;
+            long index = indicesPtr[curIndex+i];
+            dataPtr[index+i]++;
         }
         TM_END(0);
 
