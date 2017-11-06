@@ -16,10 +16,10 @@ OPT=$(LLVM_BIN)/opt
 CLANG=$(LLVM_BIN)/clang 
 CLANGCPP=$(LLVM_BIN)/clang++
 # -O3 deliberately not added to CFLAGS in order to generate unoptimized .ll files
-CFLAGS += -O3
+CFLAGS += 
 CFLAGS += -mrtm -Wno-override-module
 # Enable optimizations in the final step -O3
-CXXFLAGS += -O3
+CXXFLAGS += 
 CXXFLAGS += -mrtm -Wno-override-module
 
 DVFS_FLAGS=$(COMPILER_LIB)/libDAE_prof_ST.a -lcpufreq
@@ -34,7 +34,11 @@ DAE_MARKER='__kernel__'
 # Helper to generate prerequisites of rules
 get_objects=$$(addprefix $(BINDIR)/, $$(addsuffix .ll, $$(basename $$(SRCS))))
 get_stats_objects=$$(addprefix $(BINDIR)/, $$(addsuffix .stats.ll,$$(basename $$(SRCS))))
-get_gran_files=$$(shell grep -sl "__kernel__" $(BINDIR)/*.marked.ll | sed 's/.marked.ll/.gran.ll/g')
+get_O3_objects=$$(addprefix $(BINDIR)/, $$(addsuffix .O3.ll, $$(basename $$(SRCS))))
+get_stats_O3_objects=$$(addprefix $(BINDIR)/, $$(addsuffix .stats.O3.ll,$$(basename $$(SRCS))))
+get_tm_arg_objects=$$(addprefix $(BINDIR)/, $$(addsuffix .$(TM_ARG_SUFFIX).ll, $$(basename $$(SRCS))))
+get_tm_arg_stats_objects=$$(addprefix $(BINDIR)/, $$(addsuffix $(TM_ARG_SUFFIX).stats.ll,$$(basename $$(SRCS))))
+get_gran_files=$$(shell grep -sl "__kernel__" $(BINDIR)/*.marked.ll)
 
 # Debugging purposes: keep all generated ll files
 .PRECIOUS: %.ll
@@ -57,52 +61,53 @@ perf:
 	$(MAKE) PERF_TOOL=$(PERF_COUNTERS_TOOL) -C $(LIB_PERF)
 
 $(BINDIR)/$(BENCHMARK).$(ORIGINAL_SUFFIX): $(BINDIR)/$(BENCHMARK).$(ORIGINAL_SUFFIX).ll
-	$(CLANGCPP) $(CXXFLAGS) $(CFLAGS) $^ $(LIB_OBJS) $(LDFLAGS) $(DVFS_FLAGS) -o $@
+	$(CLANGCPP) -O3 $(CXXFLAGS) $(CFLAGS) $^ $(LIB_OBJS) $(LDFLAGS) $(DVFS_FLAGS) -o $@
 
-$(BINDIR)/$(BENCHMARK).$(ARGS_SUFFIX): $(BINDIR)/$(BENCHMARK).$(ARGS_SUFFIX).ll
-	$(CLANGCPP) $(CXXFLAGS) $(CFLAGS) $^ $(LIB_OBJS) $(LDFLAGS) $(DVFS_FLAGS) -o $@
+$(BINDIR)/$(BENCHMARK).$(CAE_SUFFIX): $(BINDIR)/$(BENCHMARK).$(CAE_SUFFIX).ll
+	$(CLANGCPP) -O3 $(CXXFLAGS) $(CFLAGS) $^ $(LIB_OBJS) $(LDFLAGS) $(DVFS_FLAGS) -o $@
+
+$(BINDIR)/$(BENCHMARK).$(CAE_SUFFIX)2: $(BINDIR)/$(BENCHMARK).$(CAE_SUFFIX).extracted.ll $(BINDIR)/$(BENCHMARK).GV_DAE.ll
+	$(CLANGCPP) -O3 $(CXXFLAGS) $(CFLAGS) $^ $(LIB_OBJS) $(LDFLAGS) $(DVFS_FLAGS) -o $@
+
+$(BINDIR)/$(BENCHMARK).$(TM_ARG_SUFFIX): $(BINDIR)/$(BENCHMARK).$(TM_ARG_SUFFIX).ll
+	$(CLANGCPP) -O3 $(CXXFLAGS) $(CFLAGS) $^ $(LIB_OBJS) $(LDFLAGS) $(DVFS_FLAGS) -o $@
 
 $(BINDIR)/$(BENCHMARK).$(TM_FULL_DAE_SUFFIX): $(BINDIR)/$(BENCHMARK).$(TM_FULL_DAE_SUFFIX).ll $(BINDIR)/$(BENCHMARK).GV_DAE.ll
-	$(CLANGCPP) $(CXXFLAGS) $(CFLAGS) $^ $(LIB_OBJS) $(LDFLAGS) $(DVFS_FLAGS) -o $@
+	$(CLANGCPP) -O3 $(CXXFLAGS) $(CFLAGS) $^ $(LIB_OBJS) $(LDFLAGS) $(DVFS_FLAGS) -o $@
 
 $(BINDIR)/$(BENCHMARK).$(TM_DAE_SUFFIX): $(BINDIR)/$(BENCHMARK).$(TM_DAE_SUFFIX).ll $(BINDIR)/$(BENCHMARK).GV_DAE.ll
-	$(CLANGCPP) $(CXXFLAGS) $(CFLAGS) $^ $(LIB_OBJS) $(LDFLAGS) $(DVFS_FLAGS) -o $@
+	$(CLANGCPP) -O3 $(CXXFLAGS) $(CFLAGS) $^ $(LIB_OBJS) $(LDFLAGS) $(DVFS_FLAGS) -o $@
 
-$(BINDIR)/$(BENCHMARK).$(ARGS_SUFFIX).ll: $(BINDIR)/$(BENCHMARK).$(ORIGINAL_SUFFIX).ll
-	$(OPT) -S \
-	-load $(COMPILER_LIB)/libTMArgsPrefetcher.so -tm-prefetch-args \
-	-o $@ $^
-
-$(BINDIR)/$(BENCHMARK).$(TM_FULL_DAE_SUFFIX).ll: $(BINDIR)/$(BENCHMARK).$(ARGS_SUFFIX).extracted.ll
+$(BINDIR)/$(BENCHMARK).$(TM_DAE_SUFFIX).ll: $(BINDIR)/$(BENCHMARK).$(CAE_SUFFIX).extracted.ll
 	$(OPT) -S \
 	-load $(COMPILER_LIB)/libTMFKernelPrefetch.so -tbaa -basicaa -tm-f-kernel-prefetch -indir-thresh 25 -follow-partial -always-inline \
 	-load $(COMPILER_LIB)/libRemoveRedundantPref.so -rrp \
 	-o $@ $^
 
-$(BINDIR)/$(BENCHMARK).$(TM_DAE_SUFFIX).ll: $(BINDIR)/$(BENCHMARK).$(ORIGINAL_SUFFIX).extracted.ll
-	$(OPT) -S \
-	-load $(COMPILER_LIB)/libTMFKernelPrefetch.so -tbaa -basicaa -tm-f-kernel-prefetch -indir-thresh 25 -follow-partial -always-inline \
-	-load $(COMPILER_LIB)/libRemoveRedundantPref.so -rrp \
-	-o $@ $^
-
-$(BINDIR)/$(BENCHMARK).$(ORIGINAL_SUFFIX).extracted.ll: $(BINDIR)/$(BENCHMARK).$(ORIGINAL_SUFFIX).marked.ll
+$(BINDIR)/$(BENCHMARK).$(CAE_SUFFIX).extracted.ll: $(BINDIR)/$(BENCHMARK).$(CAE_SUFFIX).marked.ll
 	$(OPT) -S \
 	-loop-simplify -licm \
 	-load $(COMPILER_LIB)/libTMLoopExtract.so -aggregate-extracted-args -tm-loop-extract -is-dae -bench-name $(BENCHMARK) \
 	-o $@ $<
 
-$(BINDIR)/$(BENCHMARK).$(ORIGINAL_SUFFIX).marked.ll: $(BINDIR)/$(BENCHMARK).$(ORIGINAL_SUFFIX).ll
+$(BINDIR)/$(BENCHMARK).$(CAE_SUFFIX).marked.ll: $(BINDIR)/$(BENCHMARK).$(CAE_SUFFIX).ll
 	$(OPT) -S \
 	-load $(COMPILER_LIB)/libMarkLoopsToTransform.so -mark-loops -require-delinquent=false -bench-name $(BENCHMARK) \
         -o $@ $<
 
-$(BINDIR)/$(BENCHMARK).$(ARGS_SUFFIX).extracted.ll: $(BINDIR)/$(BENCHMARK).$(ARGS_SUFFIX).marked.ll
+$(BINDIR)/$(BENCHMARK).$(TM_FULL_DAE_SUFFIX).ll: $(BINDIR)/$(BENCHMARK).$(TM_ARG_SUFFIX).extracted.ll
+	$(OPT) -S \
+	-load $(COMPILER_LIB)/libTMFKernelPrefetch.so -tbaa -basicaa -tm-f-kernel-prefetch -indir-thresh 25 -follow-partial -always-inline \
+	-load $(COMPILER_LIB)/libRemoveRedundantPref.so -rrp \
+	-o $@ $^
+
+$(BINDIR)/$(BENCHMARK).$(TM_ARG_SUFFIX).extracted.ll: $(BINDIR)/$(BENCHMARK).$(TM_ARG_SUFFIX).marked.ll
 	$(OPT) -S \
 	-loop-simplify -licm \
 	-load $(COMPILER_LIB)/libTMLoopExtract.so -aggregate-extracted-args -tm-loop-extract -is-dae -bench-name $(BENCHMARK) \
 	-o $@ $<
 
-$(BINDIR)/$(BENCHMARK).$(ARGS_SUFFIX).marked.ll: $(BINDIR)/$(BENCHMARK).$(ARGS_SUFFIX).ll
+$(BINDIR)/$(BENCHMARK).$(TM_ARG_SUFFIX).marked.ll: $(BINDIR)/$(BENCHMARK).$(TM_ARG_SUFFIX).ll
 	$(OPT) -S \
 	-load $(COMPILER_LIB)/libMarkLoopsToTransform.so -mark-loops -require-delinquent=false -bench-name $(BENCHMARK) \
 	-o $@ $<
@@ -111,9 +116,29 @@ $(BINDIR)/$(BENCHMARK).$(ARGS_SUFFIX).marked.ll: $(BINDIR)/$(BENCHMARK).$(ARGS_S
 # numbers, stats should be disabled to get the correct execution time
 # (fair for all versions).
 ifeq ($(ENABLE_STATS),yes)
-$(BINDIR)/$(BENCHMARK).$(ORIGINAL_SUFFIX).ll: $(get_stats_objects) $(LIB_LLS)
+$(BINDIR)/$(BENCHMARK).$(ORIGINAL_SUFFIX).ll: $(get_stats_O3_objects) $(LIB_LLS)
 else
-$(BINDIR)/$(BENCHMARK).$(ORIGINAL_SUFFIX).ll: $(get_objects) $(LIB_LLS)
+$(BINDIR)/$(BENCHMARK).$(ORIGINAL_SUFFIX).ll: $(get_O3_objects) $(LIB_LLS)
+endif
+	$(LINK) -S -o $@ $^
+
+# Printing stats introduces an overhead. For gathering performance
+# numbers, stats should be disabled to get the correct execution time
+# (fair for all versions).
+ifeq ($(ENABLE_STATS),yes)
+$(BINDIR)/$(BENCHMARK).$(CAE_SUFFIX).ll: $(get_stats_objects) $(LIB_LLS)
+else
+$(BINDIR)/$(BENCHMARK).$(CAE_SUFFIX).ll: $(get_objects) $(LIB_LLS)
+endif
+	$(LINK) -S -o $@ $^
+
+# Printing stats introduces an overhead. For gathering performance
+# numbers, stats should be disabled to get the correct execution time
+# (fair for all versions).
+ifeq ($(ENABLE_STATS),yes)
+$(BINDIR)/$(BENCHMARK).$(TM_ARG_SUFFIX).ll: $(get_tm_arg_stats_objects) $(LIB_LLS)
+else
+$(BINDIR)/$(BENCHMARK).$(TM_ARG_SUFFIX).ll: $(get_tm_arg_objects) $(LIB_LLS)
 endif
 	$(LINK) -S -o $@ $^
 
@@ -135,37 +160,43 @@ $(BINDIR)/Globals.ll: $(get_gran_files)
 #
 $(BINDIR)/%.ll: %.c
 	mkdir -p $(BINDIR)/$(shell dirname $^)
-	$(CLANG) $(CFLAGS) -I $(LIB_DIR)/lib $^ -S -emit-llvm -o $@
+	$(CLANG) -O1 $(CFLAGS) -I $(LIB_DIR)/lib $^ -S -emit-llvm -o $@
 
 $(BINDIR)/%.ll: %.cpp
 	mkdir -p $(BINDIR)/$(shell dirname $<)
-	$(CLANGCPP) $(CXXFLAGS) -I $(LIB_DIR)/lib $^ -S -emit-llvm -o $@
+	$(CLANGCPP) -O1 $(CXXFLAGS) -I $(LIB_DIR)/lib $^ -S -emit-llvm -o $@
 
 $(BINDIR)/%.ll: %.cc
 	mkdir -p $(BINDIR)/$(shell dirname $<)
-	$(CLANGCPP) $(CXXFLAGS) -I $(LIB_DIR)/lib $^ -S -emit-llvm -o $@
+	$(CLANGCPP) -O1 $(CXXFLAGS) -I $(LIB_DIR)/lib $^ -S -emit-llvm -o $@
 
-%.stats.ll: %.ll
+$(BINDIR)/%.O3.ll: $(BINDIR)/%.ll
+	$(OPT) -S -O3 \
+	-o $@ $^
+
+$(BINDIR)/%.stats.O3.ll: $(BINDIR)/%.O3.ll
 	cat $< \
 	| sed 's/tail \(call void @exit(\)/\1/g' \
 	| sed 's/call void @exit(/call void @profiler_print_stats()\n  &/g' \
 	| sed 's/declare void @exit(/declare void @profiler_print_stats()\n&/g' \
 	> $@
 
-# Printing stats introduces an overhead. For gathering performance
-# numbers, stats should be disabled to get the correct execution time
-# (fair for all versions).
-ifeq ($(ENABLE_STATS),yes)
-%.marked.ll: %.stats.ll
-else
-%.marked.ll: %.ll
-endif
-	$(OPT) -S \
-	-load $(COMPILER_LIB)/libMarkLoopsToTransform.so -mark-loops -require-delinquent=false -bench-name $(BENCHMARK) \
-	-o $@ $<
+$(BINDIR)/%.stats.ll: $(BINDIR)/%.ll
+	cat $< \
+	| sed 's/tail \(call void @exit(\)/\1/g' \
+	| sed 's/call void @exit(/call void @profiler_print_stats()\n  &/g' \
+	| sed 's/declare void @exit(/declare void @profiler_print_stats()\n&/g' \
+	> $@
 
-%.cae.ll: %.extract.ll
-	$(OPT) -S -load $(COMPILER_LIB)/libTimeOrig.so -papi-orig -always-inline -o $@ $<;
+$(BINDIR)/%.$(TM_ARG_SUFFIX).stats.ll: $(BINDIR)/%.stats.ll
+	$(OPT) -S \
+	-load $(COMPILER_LIB)/libTMArgsPrefetcher.so -tm-prefetch-args \
+	-o $@ $^
+
+$(BINDIR)/%.$(TM_ARG_SUFFIX).ll: $(BINDIR)/%.ll
+	$(OPT) -S \
+	-load $(COMPILER_LIB)/libTMArgsPrefetcher.so -tm-prefetch-args \
+	-o $@ $^
 
 clean:
 	rm -f *.o $(BINDIR)/* && $(MAKE) -C $(LIB_DIR) clean
